@@ -1,0 +1,52 @@
+:root {
+  color-scheme: dark;
+  font-family: system-ui, sans-serif;
+  font-size: 13px;
+}
+
+html,
+body {
+  height: 32px;
+  margin: 0;
+  overflow: hidden;
+}
+
+body {
+  background: transparent;
+  color: #f5f7fb;
+}
+
+#shell-bar {
+  align-items: center;
+  background: rgba(12, 14, 20, 0.82);
+  box-sizing: border-box;
+  display: flex;
+  gap: 16px;
+  height: 32px;
+  justify-content: space-between;
+  padding: 0 12px;
+  width: 100vw;
+}
+
+#app-name,
+#clock,
+#bridge-status {
+  line-height: 32px;
+  white-space: nowrap;
+}
+
+#app-name {
+  font-weight: 700;
+}
+
+#clock {
+  font-variant-numeric: tabular-nums;
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+#bridge-status {
+  color: #a7f3d0;
+  margin-left: auto;
+}

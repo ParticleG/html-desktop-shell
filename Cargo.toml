@@ -1,0 +1,11 @@
+[package]
+name = "html-desktop-shell"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+gtk4 = "0.11"
+gtk4-layer-shell = "0.8"
+webkit6 = { version = "0.6", features = ["v2_52"] }
+javascriptcore6 = "0.6"
+glib = "0.22"

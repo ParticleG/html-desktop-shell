@@ -1,0 +1,29 @@
+use webkit6::prelude::*;
+
+const HOST_INFO_JSON: &str = r#"{"shell":"html-desktop-shell","backend":"wayland-layer-shell"}"#;
+const HANDLER_NAME: &str = "shell";
+
+pub fn attach_bridge(web_view: &webkit6::WebView) -> Result<(), &'static str> {
+    let Some(manager) = web_view.user_content_manager() else {
+        return Err("missing WebKit user content manager");
+    };
+
+    manager.connect_script_message_with_reply_received(
+        Some(HANDLER_NAME),
+        |_manager, value, reply| {
+            let Some(context) = value.context() else {
+                reply.return_error_message("missing JavaScriptCore context");
+                return true;
+            };
+            let result = javascriptcore6::Value::new_string(&context, Some(HOST_INFO_JSON));
+            reply.return_value(&result);
+            true
+        },
+    );
+
+    if !manager.register_script_message_handler_with_reply(HANDLER_NAME, None) {
+        return Err("failed to register WebKit script message handler: shell");
+    }
+
+    Ok(())
+}

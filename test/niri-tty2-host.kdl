@@ -1,0 +1,6 @@
+spawn-sh-at-startup "cd \"$HOME/coding/OtherProjects/html-desktop-shell\" && ./target/debug/html-desktop-shell"
+
+binds {
+    Mod+Shift+E { quit; }
+    Ctrl+Alt+Delete { quit; }
+}
