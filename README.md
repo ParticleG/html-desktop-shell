@@ -82,13 +82,21 @@ cargo build
 ./target/debug/html-desktop-shell
 ```
 
+For machine-readable niri verification, run this while the panel process is running:
+
+```bash
+niri msg -j layers
+```
+
 Expected observable result:
 
-- A 32px panel appears at the top of the screen.
+- One 32px panel appears at the top of each detected monitor; with one monitor, this is one panel.
 - Left text is `HTML Shell`.
 - Center clock updates every second.
 - Right text changes from `bridge: pending` to `bridge: wayland-layer-shell`.
-- Maximized windows do not cover the top 32px area, proving the exclusive zone is active.
+- `niri msg -j layers` shows one top-layer surface per detected monitor with namespace `html-desktop-shell-panel-<index>`, such as `html-desktop-shell-panel-0`.
+- Maximized windows do not cover the top 32px area on any panel output, proving the exclusive zone is active.
+- Monitor hotplug after app startup is not handled in this increment; restart the app after changing monitor topology.
 
 ## tty2 no-DE/display-manager verification
 
@@ -108,7 +116,7 @@ From the physical console:
 
 3. Exit the test compositor with `Super+Shift+E` or `Ctrl+Alt+Delete`.
 
-Expected result: the same 32px top panel appears in a session with no DE and no display manager. If niri fails before showing the panel, report the niri error; that is not an application failure.
+Expected result: one 32px top panel appears on each monitor detected by the tty2 niri session, with no DE and no display manager. If niri fails before showing the panel, report the niri error; that is not an application failure.
 
 Boundary check from tty2: running the app directly without niri must not show a fallback window. It should fail with `Wayland compositor does not support layer-shell` or an equivalent GTK/Wayland display connection error.
 
@@ -178,7 +186,7 @@ cargo build
 niri --config ./test/niri-kvm-guest.kdl
 ```
 
-Expected KVM result: the guest boots to TTY, starts niri only, no DE/display manager is installed, and the panel appears with `bridge: wayland-layer-shell`.
+Expected KVM result: the guest boots to TTY, starts niri only, no DE/display manager is installed, and one 32px panel appears on each detected monitor with `bridge: wayland-layer-shell`. With the default virtio display this normally means one panel, namespace `html-desktop-shell-panel-0`.
 
 In a minimal guest, GTK may print `Cannot get portal org.freedesktop.portal.*` warnings when no `xdg-desktop-portal` service is running. This is expected for the current no-DE test and is not a failure because the app does not use portal-backed features.
 
