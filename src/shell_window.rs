@@ -1,26 +1,72 @@
 use std::{env, path::PathBuf};
 
-use gtk4::prelude::*;
+use glib::prelude::CastNone;
+use gtk4::{gio::prelude::ListModelExt, prelude::*};
 use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
 use webkit6::prelude::*;
 
 use crate::bridge;
 
 const PANEL_HEIGHT: i32 = 32;
-const PANEL_NAMESPACE: &str = "html-desktop-shell-panel";
+const PANEL_NAMESPACE_PREFIX: &str = "html-desktop-shell-panel";
 
-pub fn shell_window_new(app: &gtk4::Application) -> Result<gtk4::ApplicationWindow, String> {
+pub fn shell_windows_new(app: &gtk4::Application) -> Result<Vec<gtk4::ApplicationWindow>, String> {
     if !gtk4_layer_shell::is_supported() {
         return Err("Wayland compositor does not support layer-shell".to_owned());
     }
 
+    let display =
+        gtk4::gdk::Display::default().ok_or_else(|| "missing default GDK display".to_owned())?;
+    let monitors = display.monitors();
+    if monitors.n_items() == 0 {
+        return Err("no GDK monitors available".to_owned());
+    }
+
+    let html_path = web_index_path()?;
+    let uri = glib::filename_to_uri(&html_path, None).map_err(|error| {
+        format!(
+            "failed to create file URI for {}: {error}",
+            html_path.display()
+        )
+    })?;
+
+    let mut windows = Vec::new();
+    for index in 0..monitors.n_items() {
+        let Some(monitor) = monitors.item(index).and_downcast::<gtk4::gdk::Monitor>() else {
+            eprintln!("skipping non-monitor GDK list item at index {index}");
+            continue;
+        };
+
+        windows.push(shell_window_for_monitor(
+            app,
+            &monitor,
+            index,
+            uri.as_str(),
+        )?);
+    }
+
+    if windows.is_empty() {
+        return Err("no usable GDK monitors available".to_owned());
+    }
+
+    Ok(windows)
+}
+
+fn shell_window_for_monitor(
+    app: &gtk4::Application,
+    monitor: &gtk4::gdk::Monitor,
+    index: u32,
+    uri: &str,
+) -> Result<gtk4::ApplicationWindow, String> {
     let window = gtk4::ApplicationWindow::new(app);
     window.set_title(Some("HTML Desktop Shell"));
     window.set_decorated(false);
     window.set_resizable(true);
 
     window.init_layer_shell();
-    window.set_namespace(Some(PANEL_NAMESPACE));
+    window.set_monitor(Some(monitor));
+    let namespace = format!("{PANEL_NAMESPACE_PREFIX}-{index}");
+    window.set_namespace(Some(namespace.as_str()));
     window.set_layer(Layer::Top);
     window.set_anchor(Edge::Left, true);
     window.set_anchor(Edge::Right, true);
@@ -38,20 +84,11 @@ pub fn shell_window_new(app: &gtk4::Application) -> Result<gtk4::ApplicationWind
         eprintln!("{message}");
     }
 
-    let html_path = web_index_path()?;
-
-    let uri = glib::filename_to_uri(&html_path, None).map_err(|error| {
-        format!(
-            "failed to create file URI for {}: {error}",
-            html_path.display()
-        )
-    })?;
-
     web_view.connect_load_failed(|_, _event, failing_uri, error| {
         eprintln!("WebKit load failed for {failing_uri}: {error}");
         false
     });
-    web_view.load_uri(uri.as_str());
+    web_view.load_uri(uri);
     window.set_child(Some(&web_view));
 
     Ok(window)
