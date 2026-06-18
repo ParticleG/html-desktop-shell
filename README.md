@@ -98,6 +98,15 @@ Expected observable result:
 - Maximized windows do not cover the top 32px area on any panel output, proving the exclusive zone is active.
 - Adding or removing monitors after startup triggers a full panel rebuild with the same `html-desktop-shell-panel-<index>` namespace pattern. If rebuild fails, the previous panel set remains running and the error is printed to stderr.
 
+qin## Native bridge boundary
+
+The only WebKit native message handler is `shell`. Browser code sends versioned JSON requests and receives JSON response envelopes. Supported methods are:
+
+- `getHostInfo`: returns shell name, `wayland-layer-shell` backend, and bridge version `1`.
+- `getCapabilities`: returns the supported method list.
+
+Unknown or malformed requests return structured errors. The bridge intentionally does not expose filesystem, process, network, DBus, clipboard, screenshot, notification, session-control, or generic eval access.
+
 ## Renderer diagnostics
 
 Default GTK/WebKit renderer behavior is unchanged. For a software-rendered diagnostic run only:
