@@ -96,7 +96,17 @@ Expected observable result:
 - Right text changes from `bridge: pending` to `bridge: wayland-layer-shell`.
 - `niri msg -j layers` shows one top-layer surface per detected monitor with namespace `html-desktop-shell-panel-<index>`, such as `html-desktop-shell-panel-0`.
 - Maximized windows do not cover the top 32px area on any panel output, proving the exclusive zone is active.
-- Monitor hotplug after app startup is not handled in this increment; restart the app after changing monitor topology.
+- Adding or removing monitors after startup triggers a full panel rebuild with the same `html-desktop-shell-panel-<index>` namespace pattern. If rebuild fails, the previous panel set remains running and the error is printed to stderr.
+
+## Renderer diagnostics
+
+Default GTK/WebKit renderer behavior is unchanged. For a software-rendered diagnostic run only:
+
+```bash
+GSK_RENDERER=cairo ./target/debug/html-desktop-shell
+```
+
+Do not set `GSK_RENDERER` in the niri test configs by default. KVM Mesa/Vulkan warnings remain non-fatal when the panel renders and the bridge reports `wayland-layer-shell`.
 
 ## tty2 no-DE/display-manager verification
 
