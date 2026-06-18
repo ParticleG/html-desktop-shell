@@ -1,4 +1,5 @@
 mod bridge;
+mod messages;
 mod shell_host;
 mod shell_window;
 

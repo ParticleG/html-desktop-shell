@@ -1,6 +1,7 @@
+use crate::messages;
+
 use webkit6::prelude::*;
 
-const HOST_INFO_JSON: &str = r#"{"shell":"html-desktop-shell","backend":"wayland-layer-shell"}"#;
 const HANDLER_NAME: &str = "shell";
 
 pub fn attach_bridge(web_view: &webkit6::WebView) -> Result<(), &'static str> {
@@ -15,7 +16,12 @@ pub fn attach_bridge(web_view: &webkit6::WebView) -> Result<(), &'static str> {
                 reply.return_error_message("missing JavaScriptCore context");
                 return true;
             };
-            let result = javascriptcore6::Value::new_string(&context, Some(HOST_INFO_JSON));
+            let raw_request = value
+                .to_json(0)
+                .map(|json| json.to_string())
+                .unwrap_or_else(|| "null".to_owned());
+            let response_json = messages::handle_native_request(raw_request.as_str());
+            let result = javascriptcore6::Value::new_string(&context, Some(response_json.as_str()));
             reply.return_value(&result);
             true
         },

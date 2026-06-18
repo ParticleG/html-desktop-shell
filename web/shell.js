@@ -5,10 +5,24 @@ function updateClock() {
   clock.textContent = new Date().toLocaleTimeString([], { hour12: false });
 }
 
+let nextRequestId = 1;
+
 window.shell = {
-  async getHostInfo() {
-    const raw = await window.webkit.messageHandlers.shell.postMessage({ method: "getHostInfo" });
-    return JSON.parse(raw);
+  async request(method, params = {}) {
+    const id = String(nextRequestId++);
+    const raw = await window.webkit.messageHandlers.shell.postMessage({ id, method, params });
+    const response = JSON.parse(raw);
+    if (!response.ok) {
+      const message = response.error?.message || "native bridge request failed";
+      throw new Error(message);
+    }
+    return response.result;
+  },
+  getHostInfo() {
+    return this.request("getHostInfo");
+  },
+  getCapabilities() {
+    return this.request("getCapabilities");
   },
 };
 
