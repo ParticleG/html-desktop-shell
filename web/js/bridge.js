@@ -18,3 +18,7 @@ export function getHostInfo() {
 export function getCapabilities() {
   return request("getCapabilities");
 }
+
+export function getState() {
+  return request("getState");
+}

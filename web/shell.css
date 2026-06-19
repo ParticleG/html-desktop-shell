@@ -28,6 +28,9 @@ body {
   width: 100vw;
 }
 
+#left-widgets,
+#center-widgets,
+#right-widgets,
 #app-name,
 #clock,
 #bridge-status {
@@ -39,7 +42,7 @@ body {
   font-weight: 700;
 }
 
-#clock {
+#center-widgets {
   font-variant-numeric: tabular-nums;
   position: absolute;
   left: 50%;
@@ -47,7 +50,14 @@ body {
   transform: translate(-50%, -50%);
 }
 
-#bridge-status {
+#right-widgets {
   color: #a7f3d0;
   margin-left: auto;
+}
+
+#left-widgets,
+#center-widgets,
+#right-widgets {
+  align-items: center;
+  display: flex;
 }
