@@ -44,7 +44,7 @@ Expected `pkg-config` output:
 ## Build and run
 
 ```bash
-cd ~/coding/OtherProjects/html-desktop-shell
+cd ~/coding/RustroverProjects/html-desktop-shell
 cargo build
 ./target/debug/html-desktop-shell
 ```
@@ -102,7 +102,7 @@ Precondition: current session is Wayland/niri or another layer-shell-capable Way
 If another top-layer panel is already running, such as `dms:bar`/dankbar, niri may stack this prototype below that panel. That still proves the layer-shell client is visible; stop the existing panel or use the tty2/KVM clean niri session to verify the prototype at the absolute top edge.
 
 ```bash
-cd ~/coding/OtherProjects/html-desktop-shell
+cd ~/coding/RustroverProjects/html-desktop-shell
 cargo build
 ./target/debug/html-desktop-shell --config ./test/panel-default.toml
 ```
@@ -118,7 +118,7 @@ Expected observable result:
 - One 32px panel appears at the top of each detected monitor; with one monitor, this is one panel.
 - Left text is `HTML Shell`.
 - Center clock updates every second.
-- Right text changes from `bridge: pending` to `bridge: wayland-layer-shell`.
+- Right text changes from `bridge: pending` to provider-backed status containing `bridge: wayland-layer-shell`, monitor count, and niri availability/focused output when available.
 - `niri msg -j layers` shows one top-layer surface per detected monitor with namespace `html-desktop-shell-panel-<index>`, such as `html-desktop-shell-panel-0`.
 - Maximized windows do not cover the top 32px area on any panel output, proving the exclusive zone is active.
 - Adding or removing monitors after startup triggers a full panel rebuild with the same `html-desktop-shell-panel-<index>` namespace pattern. If rebuild fails, the previous panel set remains running and the error is printed to stderr.
@@ -129,8 +129,21 @@ The only WebKit native message handler is `shell`. Browser code sends versioned 
 
 - `getHostInfo`: returns shell name, `wayland-layer-shell` backend, and bridge version `1`.
 - `getCapabilities`: returns the supported method list.
+- `getState`: returns provider snapshots for clock, host, and optional niri state.
 
 Unknown or malformed requests return structured errors. The bridge intentionally does not expose filesystem, process, network, DBus, clipboard, screenshot, notification, session-control, or generic eval access.
+
+## Provider state
+
+The web UI polls `getState` once per second. The clock now comes from the native `ClockProvider`; the browser no longer uses its own `Date` clock.
+
+State providers:
+
+- `clock`: returns local time as `HH:MM:SS`.
+- `host`: returns backend, active monitor count, and bridge version.
+- `niri`: when `NIRI_SOCKET` exists, runs `niri msg -j focused-output` as a diagnostic provider and reports the focused output name. Without niri, it returns `{"available":false,"reason":"niri IPC unavailable"}` and does not block panel startup.
+
+The niri provider intentionally uses the installed `niri msg` command for this phase. This is simple and source-compatible with the current system, but it is a polling diagnostic path, not a low-latency IPC subscription.
 
 ## Renderer diagnostics
 
@@ -154,7 +167,7 @@ From the physical console:
 2. Run:
 
    ```bash
-   cd ~/coding/OtherProjects/html-desktop-shell
+   cd ~/coding/RustroverProjects/html-desktop-shell
    niri --session --config ./test/niri-tty2-host.kdl
    ```
 
@@ -197,7 +210,7 @@ virt-install \
   --osinfo archlinux \
   --cdrom /home/particleg/Downloads/archlinux-2026.06.01-x86_64.iso \
   --disk path=/home/particleg/.local/share/libvirt/images/html-shell-test.qcow2,size=40,format=qcow2,bus=virtio \
-  --filesystem source.dir=/home/particleg/coding/OtherProjects/html-desktop-shell,target.dir=htmlshell \
+  --filesystem source.dir=/home/particleg/coding/RustroverProjects/html-desktop-shell,target.dir=htmlshell \
   --network type=user,model=virtio \
   --graphics spice,gl.enable=yes,listen=none \
   --video virtio,accel3d=yes \
@@ -230,7 +243,7 @@ cargo build
 niri --config ./test/niri-kvm-guest.kdl
 ```
 
-Expected KVM result: the guest boots to TTY, starts niri only, no DE/display manager is installed, and one 32px panel appears on each detected monitor with `bridge: wayland-layer-shell`. With the default virtio display this normally means one panel, namespace `html-desktop-shell-panel-0`.
+Expected KVM result: the guest boots to TTY, starts niri only, no DE/display manager is installed, and one 32px panel appears on each detected monitor with provider-backed status containing `bridge: wayland-layer-shell`. With the default virtio display this normally means one panel, namespace `html-desktop-shell-panel-0`.
 
 In a minimal guest, GTK may print `Cannot get portal org.freedesktop.portal.*` warnings when no `xdg-desktop-portal` service is running. This is expected for the current no-DE test and is not a failure because the app does not use portal-backed features.
 
