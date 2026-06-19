@@ -1,6 +1,7 @@
 mod bridge;
 mod config;
 mod messages;
+mod providers;
 mod shell_host;
 mod shell_window;
 

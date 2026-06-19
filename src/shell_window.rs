@@ -5,6 +5,7 @@ use webkit6::prelude::*;
 use crate::{
     bridge,
     config::{PanelKeyboardMode, PanelLayer, ShellConfig},
+    providers::ProviderRegistry,
 };
 const PANEL_NAMESPACE_PREFIX: &str = "html-desktop-shell-panel";
 
@@ -14,6 +15,7 @@ pub fn shell_window_for_monitor(
     index: u32,
     uri: &str,
     config: &ShellConfig,
+    providers: ProviderRegistry,
 ) -> Result<gtk4::ApplicationWindow, String> {
     let window = gtk4::ApplicationWindow::new(app);
     window.set_title(Some("HTML Desktop Shell"));
@@ -40,7 +42,7 @@ pub fn shell_window_for_monitor(
     }
     web_view.set_hexpand(true);
     web_view.set_vexpand(true);
-    if let Err(message) = bridge::attach_bridge(&web_view) {
+    if let Err(message) = bridge::attach_bridge(&web_view, providers) {
         eprintln!("{message}");
     }
 

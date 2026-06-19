@@ -1,6 +1,7 @@
-const BRIDGE_VERSION: u32 = 1;
+pub const BRIDGE_VERSION: u32 = 1;
 const METHOD_GET_CAPABILITIES: &str = "getCapabilities";
 const METHOD_GET_HOST_INFO: &str = "getHostInfo";
+const METHOD_GET_STATE: &str = "getState";
 
 #[derive(serde::Deserialize)]
 pub struct NativeRequest {
@@ -26,14 +27,20 @@ pub struct NativeError {
     pub message: String,
 }
 
-pub fn handle_native_request(raw: &str) -> String {
+pub fn handle_native_request<F>(raw: &str, state_snapshot: F) -> String
+where
+    F: FnOnce() -> serde_json::Value,
+{
     match serde_json::from_str::<NativeRequest>(raw) {
-        Ok(request) => handle_request(&request),
+        Ok(request) => handle_request(&request, state_snapshot),
         Err(_) => bad_request_response(raw),
     }
 }
 
-fn handle_request(request: &NativeRequest) -> String {
+fn handle_request<F>(request: &NativeRequest, state_snapshot: F) -> String
+where
+    F: FnOnce() -> serde_json::Value,
+{
     let _params = &request.params;
     let response = match request.method.as_str() {
         METHOD_GET_HOST_INFO => ok_response(
@@ -47,9 +54,10 @@ fn handle_request(request: &NativeRequest) -> String {
         METHOD_GET_CAPABILITIES => ok_response(
             request.id.as_str(),
             serde_json::json!({
-                "methods": [METHOD_GET_HOST_INFO, METHOD_GET_CAPABILITIES],
+                "methods": [METHOD_GET_HOST_INFO, METHOD_GET_CAPABILITIES, METHOD_GET_STATE],
             }),
         ),
+        METHOD_GET_STATE => ok_response(request.id.as_str(), state_snapshot()),
         method => error_response(
             request.id.as_str(),
             "unknown_method",
@@ -108,6 +116,25 @@ mod tests {
         serde_json::from_str(raw).expect("native response must be valid JSON")
     }
 
+    fn test_state() -> serde_json::Value {
+        serde_json::json!({
+            "clock": { "time": "12:34:56" },
+            "host": {
+                "backend": "wayland-layer-shell",
+                "monitorCount": 2,
+                "bridgeVersion": BRIDGE_VERSION,
+            },
+            "niri": {
+                "available": false,
+                "reason": "niri IPC unavailable",
+            },
+        })
+    }
+
+    fn handle(raw: &str) -> serde_json::Value {
+        response_value(&handle_native_request(raw, test_state))
+    }
+
     #[test]
     fn parses_valid_get_host_info_request() {
         let request: NativeRequest =
@@ -121,9 +148,7 @@ mod tests {
 
     #[test]
     fn get_host_info_returns_versioned_backend() {
-        let response = response_value(&handle_native_request(
-            r#"{"id":"1","method":"getHostInfo"}"#,
-        ));
+        let response = handle(r#"{"id":"1","method":"getHostInfo"}"#);
 
         assert_eq!(response["id"], "1");
         assert_eq!(response["ok"], true);
@@ -135,22 +160,32 @@ mod tests {
 
     #[test]
     fn get_capabilities_returns_supported_methods() {
-        let response = response_value(&handle_native_request(
-            r#"{"id":"2","method":"getCapabilities"}"#,
-        ));
+        let response = handle(r#"{"id":"2","method":"getCapabilities"}"#);
         let methods = response["result"]["methods"]
             .as_array()
             .expect("methods should be an array");
 
         assert_eq!(response["ok"], true);
-        assert_eq!(methods.len(), 2);
+        assert_eq!(methods.len(), 3);
         assert_eq!(methods[0], METHOD_GET_HOST_INFO);
         assert_eq!(methods[1], METHOD_GET_CAPABILITIES);
+        assert_eq!(methods[2], METHOD_GET_STATE);
+    }
+
+    #[test]
+    fn get_state_returns_provider_snapshot() {
+        let response = handle(r#"{"id":"state","method":"getState"}"#);
+
+        assert_eq!(response["id"], "state");
+        assert_eq!(response["ok"], true);
+        assert_eq!(response["result"]["clock"]["time"], "12:34:56");
+        assert_eq!(response["result"]["host"]["monitorCount"], 2);
+        assert_eq!(response["result"]["niri"]["available"], false);
     }
 
     #[test]
     fn unknown_method_returns_error() {
-        let response = response_value(&handle_native_request(r#"{"id":"3","method":"launch"}"#));
+        let response = handle(r#"{"id":"3","method":"launch"}"#);
 
         assert_eq!(response["id"], "3");
         assert_eq!(response["ok"], false);
@@ -164,7 +199,7 @@ mod tests {
 
     #[test]
     fn malformed_request_returns_bad_request() {
-        let response = response_value(&handle_native_request(r#"{"id":"4","method":7}"#));
+        let response = handle(r#"{"id":"4","method":7}"#);
 
         assert_eq!(response["id"], "4");
         assert_eq!(response["ok"], false);
@@ -177,7 +212,7 @@ mod tests {
 
     #[test]
     fn malformed_json_without_id_uses_empty_response_id() {
-        let response = response_value(&handle_native_request("not json"));
+        let response = handle("not json");
 
         assert_eq!(response["id"], "");
         assert_eq!(response["ok"], false);

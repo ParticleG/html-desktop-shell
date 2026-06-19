@@ -3,7 +3,7 @@ use std::{cell::RefCell, env, path::PathBuf, rc::Rc};
 use glib::prelude::{CastNone, ObjectExt};
 use gtk4::{gio::prelude::ListModelExt, prelude::*};
 
-use crate::{config::ShellConfig, shell_window};
+use crate::{config::ShellConfig, providers::ProviderRegistry, shell_window};
 
 pub struct ShellHost {
     state: Rc<RefCell<ShellHostState>>,
@@ -15,6 +15,7 @@ struct ShellHostState {
     app: gtk4::Application,
     panels: Vec<gtk4::ApplicationWindow>,
     config: ShellConfig,
+    providers: ProviderRegistry,
 }
 
 impl ShellHost {
@@ -26,12 +27,14 @@ impl ShellHost {
         let display = gtk4::gdk::Display::default()
             .ok_or_else(|| "missing default GDK display".to_owned())?;
         let monitors = display.monitors();
-        let panels = panels_for_monitors(app, &monitors, &config)?;
+        let providers = ProviderRegistry::new(&monitors);
+        let panels = panels_for_monitors(app, &monitors, &config, &providers)?;
 
         let state = Rc::new(RefCell::new(ShellHostState {
             app: app.clone(),
             panels,
             config,
+            providers,
         }));
         let state_for_monitor_changes = Rc::clone(&state);
         let monitor_changed_handler = monitors.connect_items_changed(move |monitors, _, _, _| {
@@ -71,7 +74,7 @@ impl ShellHostState {
     }
 
     fn rebuild_panels(&mut self, monitors: &gtk4::gio::ListModel) -> Result<(), String> {
-        let new_panels = panels_for_monitors(&self.app, monitors, &self.config)?;
+        let new_panels = panels_for_monitors(&self.app, monitors, &self.config, &self.providers)?;
 
         for panel in self.panels.drain(..) {
             panel.close();
@@ -87,6 +90,7 @@ fn panels_for_monitors(
     app: &gtk4::Application,
     monitors: &gtk4::gio::ListModel,
     config: &ShellConfig,
+    providers: &ProviderRegistry,
 ) -> Result<Vec<gtk4::ApplicationWindow>, String> {
     if monitors.n_items() == 0 {
         return Err("no GDK monitors available".to_owned());
@@ -113,6 +117,7 @@ fn panels_for_monitors(
             index,
             uri.as_str(),
             config,
+            providers.clone(),
         )?);
     }
 
