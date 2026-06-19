@@ -4,14 +4,14 @@ use std::{
     path::{Path, PathBuf},
 };
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, serde::Serialize, PartialEq, Eq)]
 pub struct ShellConfig {
     pub panel_height: i32,
     pub layer: PanelLayer,
     pub keyboard_mode: PanelKeyboardMode,
 }
 
-#[derive(Clone, Copy, Debug, serde::Deserialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub enum PanelLayer {
     Top,
@@ -19,7 +19,7 @@ pub enum PanelLayer {
     Overlay,
 }
 
-#[derive(Clone, Copy, Debug, serde::Deserialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub enum PanelKeyboardMode {
     None,
@@ -35,9 +35,17 @@ struct RawShellConfig {
     keyboard_mode: Option<PanelKeyboardMode>,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DiagnosticFlags {
+    pub print_capabilities: bool,
+    pub print_config: bool,
+    pub check: bool,
+}
+
 #[derive(Debug)]
 pub struct LoadedConfig {
     pub config: ShellConfig,
+    pub diagnostics: DiagnosticFlags,
     pub app_args: Vec<String>,
 }
 
@@ -69,11 +77,16 @@ where
 {
     let ParsedArgs {
         config_path,
+        diagnostics,
         app_args,
     } = parse_args(args)?;
     let config = load_config(config_path.as_deref(), xdg_config_home, home)?;
 
-    Ok(LoadedConfig { config, app_args })
+    Ok(LoadedConfig {
+        config,
+        diagnostics,
+        app_args,
+    })
 }
 
 fn parse_args<I>(args: I) -> Result<ParsedArgs, String>
@@ -86,6 +99,7 @@ where
         .unwrap_or_else(|| OsString::from("html-desktop-shell"));
     let mut app_args = vec![program.to_string_lossy().into_owned()];
     let mut config_path = None;
+    let mut diagnostics = DiagnosticFlags::default();
 
     while let Some(arg) = args.next() {
         if arg == OsStr::new("--config") {
@@ -93,6 +107,12 @@ where
                 return Err("--config requires a path".to_owned());
             };
             set_config_path(&mut config_path, PathBuf::from(path))?;
+        } else if arg == OsStr::new("--print-capabilities") {
+            diagnostics.print_capabilities = true;
+        } else if arg == OsStr::new("--print-config") {
+            diagnostics.print_config = true;
+        } else if arg == OsStr::new("--check") {
+            diagnostics.check = true;
         } else {
             app_args.push(arg.to_string_lossy().into_owned());
         }
@@ -100,6 +120,7 @@ where
 
     Ok(ParsedArgs {
         config_path,
+        diagnostics,
         app_args,
     })
 }
@@ -114,6 +135,7 @@ fn set_config_path(slot: &mut Option<PathBuf>, path: PathBuf) -> Result<(), Stri
 
 struct ParsedArgs {
     config_path: Option<PathBuf>,
+    diagnostics: DiagnosticFlags,
     app_args: Vec<String>,
 }
 
@@ -269,6 +291,31 @@ keyboard_mode = "exclusive"
         assert_eq!(loaded.config.panel_height, 48);
         assert_eq!(loaded.config.layer, PanelLayer::Overlay);
         assert_eq!(loaded.config.keyboard_mode, PanelKeyboardMode::Exclusive);
+        assert_eq!(
+            loaded.app_args,
+            ["html-desktop-shell", "--gapplication-service"]
+        );
+    }
+
+    #[test]
+    fn diagnostic_flags_are_removed_from_gtk_args() {
+        let root = temp_root("diagnostics");
+        let loaded = load_from_parts(
+            [
+                OsString::from("html-desktop-shell"),
+                OsString::from("--print-capabilities"),
+                OsString::from("--print-config"),
+                OsString::from("--check"),
+                OsString::from("--gapplication-service"),
+            ],
+            Some(root.join("xdg").into_os_string()),
+            Some(root.join("home").into_os_string()),
+        )
+        .expect("diagnostic args should parse");
+
+        assert!(loaded.diagnostics.print_capabilities);
+        assert!(loaded.diagnostics.print_config);
+        assert!(loaded.diagnostics.check);
         assert_eq!(
             loaded.app_args,
             ["html-desktop-shell", "--gapplication-service"]

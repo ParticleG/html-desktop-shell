@@ -2,6 +2,15 @@ pub const BRIDGE_VERSION: u32 = 1;
 const METHOD_GET_CAPABILITIES: &str = "getCapabilities";
 const METHOD_GET_HOST_INFO: &str = "getHostInfo";
 const METHOD_GET_STATE: &str = "getState";
+const METHODS: &[&str] = &[
+    METHOD_GET_HOST_INFO,
+    METHOD_GET_CAPABILITIES,
+    METHOD_GET_STATE,
+];
+
+pub fn capabilities() -> serde_json::Value {
+    serde_json::json!({ "methods": METHODS })
+}
 
 #[derive(serde::Deserialize)]
 pub struct NativeRequest {
@@ -51,12 +60,7 @@ where
                 "bridgeVersion": BRIDGE_VERSION,
             }),
         ),
-        METHOD_GET_CAPABILITIES => ok_response(
-            request.id.as_str(),
-            serde_json::json!({
-                "methods": [METHOD_GET_HOST_INFO, METHOD_GET_CAPABILITIES, METHOD_GET_STATE],
-            }),
-        ),
+        METHOD_GET_CAPABILITIES => ok_response(request.id.as_str(), capabilities()),
         METHOD_GET_STATE => ok_response(request.id.as_str(), state_snapshot()),
         method => error_response(
             request.id.as_str(),
@@ -170,6 +174,22 @@ mod tests {
         assert_eq!(methods[0], METHOD_GET_HOST_INFO);
         assert_eq!(methods[1], METHOD_GET_CAPABILITIES);
         assert_eq!(methods[2], METHOD_GET_STATE);
+    }
+
+    #[test]
+    fn capabilities_do_not_include_generic_native_methods() {
+        let forbidden = [
+            "runCommand",
+            "readFile",
+            "writeFile",
+            "dbusCall",
+            "httpRequest",
+            "eval",
+        ];
+
+        for method in forbidden {
+            assert!(!METHODS.contains(&method));
+        }
     }
 
     #[test]

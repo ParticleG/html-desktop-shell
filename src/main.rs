@@ -1,6 +1,7 @@
 mod assets;
 mod bridge;
 mod config;
+mod diagnostics;
 mod messages;
 mod providers;
 mod shell_host;
@@ -19,6 +20,15 @@ fn main() {
             std::process::exit(1);
         }
     };
+
+    match diagnostics::run_if_requested(&loaded_config) {
+        Ok(true) => return,
+        Ok(false) => {}
+        Err(message) => {
+            eprintln!("{message}");
+            std::process::exit(1);
+        }
+    }
     let shell_config = loaded_config.config;
     let app = gtk4::Application::builder().application_id(APP_ID).build();
 
