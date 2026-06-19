@@ -70,6 +70,31 @@ Wayland compositor does not support layer-shell
 
 No DE/display manager is required. A Wayland compositor is required. Completely compositor-less TTY cannot display this app.
 
+## Configuration
+
+Configuration controls panel shape only. It does not enable behavior plugins or extra native capabilities.
+
+Lookup order:
+
+1. CLI `--config <path>`
+2. `$XDG_CONFIG_HOME/html-desktop-shell/config.toml`
+3. `~/.config/html-desktop-shell/config.toml`
+4. built-in defaults
+
+If a config file exists but is invalid, startup fails instead of silently falling back to defaults. The default config is:
+
+```toml
+panel_height = 32
+layer = "top"
+keyboard_mode = "on-demand"
+```
+
+The repository includes `test/panel-default.toml` with those defaults for explicit-config verification:
+
+```bash
+./target/debug/html-desktop-shell --config ./test/panel-default.toml
+```
+
 ## Current-session verification
 
 Precondition: current session is Wayland/niri or another layer-shell-capable Wayland compositor.
@@ -79,7 +104,7 @@ If another top-layer panel is already running, such as `dms:bar`/dankbar, niri m
 ```bash
 cd ~/coding/OtherProjects/html-desktop-shell
 cargo build
-./target/debug/html-desktop-shell
+./target/debug/html-desktop-shell --config ./test/panel-default.toml
 ```
 
 For machine-readable niri verification, run this while the panel process is running:
@@ -98,7 +123,7 @@ Expected observable result:
 - Maximized windows do not cover the top 32px area on any panel output, proving the exclusive zone is active.
 - Adding or removing monitors after startup triggers a full panel rebuild with the same `html-desktop-shell-panel-<index>` namespace pattern. If rebuild fails, the previous panel set remains running and the error is printed to stderr.
 
-qin## Native bridge boundary
+## Native bridge boundary
 
 The only WebKit native message handler is `shell`. Browser code sends versioned JSON requests and receives JSON response envelopes. Supported methods are:
 
