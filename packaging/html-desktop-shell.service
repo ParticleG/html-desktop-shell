@@ -1,0 +1,10 @@
+[Unit]
+Description=HTML Desktop Shell
+After=graphical-session.target
+
+[Service]
+ExecStart=%h/.local/bin/html-desktop-shell
+Restart=on-failure
+
+[Install]
+WantedBy=default.target

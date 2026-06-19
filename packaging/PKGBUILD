@@ -1,0 +1,25 @@
+pkgname=html-desktop-shell
+pkgver=0.1.0
+pkgrel=1
+pkgdesc='GTK4 WebKit desktop panel for Wayland layer-shell compositors'
+arch=('x86_64')
+url='https://example.invalid/html-desktop-shell'
+license=('LicenseRef-NotProvided')
+depends=('gtk4' 'gtk4-layer-shell' 'webkitgtk-6.0')
+makedepends=('cargo')
+source=("$pkgname::file://$PWD/..")
+sha256sums=('SKIP')
+
+build() {
+  cd "$srcdir/$pkgname"
+  cargo build --release --locked
+}
+
+package() {
+  cd "$srcdir/$pkgname"
+  install -Dm755 target/release/html-desktop-shell "$pkgdir/usr/bin/html-desktop-shell"
+  install -Dm644 packaging/html-desktop-shell.service "$pkgdir/usr/lib/systemd/user/html-desktop-shell.service"
+  install -Dm644 packaging/niri-spawn-html-desktop-shell.kdl "$pkgdir/usr/share/doc/html-desktop-shell/niri-spawn-html-desktop-shell.kdl"
+  install -Dm644 README.md "$pkgdir/usr/share/doc/html-desktop-shell/README.md"
+  cp -a web "$pkgdir/usr/share/html-desktop-shell/"
+}
