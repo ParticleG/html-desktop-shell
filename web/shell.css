@@ -6,7 +6,7 @@
 
 html,
 body {
-  height: 32px;
+  height: 100vh;
   margin: 0;
   overflow: hidden;
 }
@@ -22,7 +22,7 @@ body {
   box-sizing: border-box;
   display: flex;
   gap: 16px;
-  height: 32px;
+  height: 100vh;
   justify-content: space-between;
   padding: 0 12px;
   width: 100vw;
@@ -31,7 +31,7 @@ body {
 #app-name,
 #clock,
 #bridge-status {
-  line-height: 32px;
+  line-height: 1;
   white-space: nowrap;
 }
 
@@ -43,7 +43,8 @@ body {
   font-variant-numeric: tabular-nums;
   position: absolute;
   left: 50%;
-  transform: translateX(-50%);
+  top: 50%;
+  transform: translate(-50%, -50%);
 }
 
 #bridge-status {

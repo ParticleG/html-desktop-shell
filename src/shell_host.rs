@@ -3,7 +3,7 @@ use std::{cell::RefCell, env, path::PathBuf, rc::Rc};
 use glib::prelude::{CastNone, ObjectExt};
 use gtk4::{gio::prelude::ListModelExt, prelude::*};
 
-use crate::shell_window;
+use crate::{config::ShellConfig, shell_window};
 
 pub struct ShellHost {
     state: Rc<RefCell<ShellHostState>>,
@@ -14,10 +14,11 @@ pub struct ShellHost {
 struct ShellHostState {
     app: gtk4::Application,
     panels: Vec<gtk4::ApplicationWindow>,
+    config: ShellConfig,
 }
 
 impl ShellHost {
-    pub fn new(app: &gtk4::Application) -> Result<Self, String> {
+    pub fn new(app: &gtk4::Application, config: ShellConfig) -> Result<Self, String> {
         if !gtk4_layer_shell::is_supported() {
             return Err("Wayland compositor does not support layer-shell".to_owned());
         }
@@ -25,11 +26,12 @@ impl ShellHost {
         let display = gtk4::gdk::Display::default()
             .ok_or_else(|| "missing default GDK display".to_owned())?;
         let monitors = display.monitors();
-        let panels = panels_for_monitors(app, &monitors)?;
+        let panels = panels_for_monitors(app, &monitors, &config)?;
 
         let state = Rc::new(RefCell::new(ShellHostState {
             app: app.clone(),
             panels,
+            config,
         }));
         let state_for_monitor_changes = Rc::clone(&state);
         let monitor_changed_handler = monitors.connect_items_changed(move |monitors, _, _, _| {
@@ -69,7 +71,7 @@ impl ShellHostState {
     }
 
     fn rebuild_panels(&mut self, monitors: &gtk4::gio::ListModel) -> Result<(), String> {
-        let new_panels = panels_for_monitors(&self.app, monitors)?;
+        let new_panels = panels_for_monitors(&self.app, monitors, &self.config)?;
 
         for panel in self.panels.drain(..) {
             panel.close();
@@ -84,6 +86,7 @@ impl ShellHostState {
 fn panels_for_monitors(
     app: &gtk4::Application,
     monitors: &gtk4::gio::ListModel,
+    config: &ShellConfig,
 ) -> Result<Vec<gtk4::ApplicationWindow>, String> {
     if monitors.n_items() == 0 {
         return Err("no GDK monitors available".to_owned());
@@ -109,6 +112,7 @@ fn panels_for_monitors(
             &monitor,
             index,
             uri.as_str(),
+            config,
         )?);
     }
 
