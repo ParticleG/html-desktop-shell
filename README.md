@@ -95,6 +95,26 @@ The repository includes `test/panel-default.toml` with those defaults for explic
 ./target/debug/html-desktop-shell --config ./test/panel-default.toml
 ```
 
+## Web assets and local integration
+
+Runtime web asset lookup checks, in order:
+
+1. `$HTML_DESKTOP_SHELL_WEB_DIR/index.html`
+2. `$PWD/web/index.html`
+3. compile-time manifest `web/index.html`
+4. `/usr/share/html-desktop-shell/web/index.html`
+
+Missing asset errors list every checked path.
+
+Local integration files are provided but never auto-installed:
+
+- `packaging/html-desktop-shell.service`: systemd user service example using `%h/.local/bin/html-desktop-shell`.
+- `packaging/niri-spawn-html-desktop-shell.kdl`: niri startup snippet for a development checkout; replace the command with your installed binary path.
+- `packaging/PKGBUILD`: Arch package recipe that installs the binary to `/usr/bin/html-desktop-shell` and web assets to `/usr/share/html-desktop-shell/web`.
+
+The repository also includes `scripts/smoke-current-niri.sh` for the current niri session. It starts the binary, waits, prints `niri msg -j layers`, and terminates the process. It does not switch VTs, create VMs, install packages, enable services, or modify user services.
+
+
 ## Current-session verification
 
 Precondition: current session is Wayland/niri or another layer-shell-capable Wayland compositor.
@@ -111,6 +131,12 @@ For machine-readable niri verification, run this while the panel process is runn
 
 ```bash
 niri msg -j layers
+```
+
+Or run the local smoke helper after building:
+
+```bash
+scripts/smoke-current-niri.sh
 ```
 
 Expected observable result:
