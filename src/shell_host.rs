@@ -1,9 +1,9 @@
-use std::{cell::RefCell, env, path::PathBuf, rc::Rc};
+use std::{cell::RefCell, rc::Rc};
 
 use glib::prelude::{CastNone, ObjectExt};
 use gtk4::{gio::prelude::ListModelExt, prelude::*};
 
-use crate::{config::ShellConfig, providers::ProviderRegistry, shell_window};
+use crate::{assets, config::ShellConfig, providers::ProviderRegistry, shell_window};
 
 pub struct ShellHost {
     state: Rc<RefCell<ShellHostState>>,
@@ -96,7 +96,7 @@ fn panels_for_monitors(
         return Err("no GDK monitors available".to_owned());
     }
 
-    let html_path = web_index_path()?;
+    let html_path = assets::web_index_path()?;
     let uri = glib::filename_to_uri(&html_path, None).map_err(|error| {
         format!(
             "failed to create file URI for {}: {error}",
@@ -126,24 +126,4 @@ fn panels_for_monitors(
     }
 
     Ok(panels)
-}
-
-fn web_index_path() -> Result<PathBuf, String> {
-    let cwd_path = env::current_dir()
-        .map_err(|error| format!("failed to resolve current directory: {error}"))?
-        .join("web/index.html");
-    if cwd_path.exists() {
-        return Ok(cwd_path);
-    }
-
-    let manifest_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("web/index.html");
-    if manifest_path.exists() {
-        return Ok(manifest_path);
-    }
-
-    Err(format!(
-        "missing web/index.html: checked {} and {}",
-        cwd_path.display(),
-        manifest_path.display()
-    ))
 }
