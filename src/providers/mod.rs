@@ -1,3 +1,5 @@
+mod system;
+
 use std::{cell::RefCell, process::Command, rc::Rc};
 
 use gtk4::gio::prelude::ListModelExt;
@@ -25,6 +27,8 @@ impl ProviderRegistry {
                     monitors: monitors.clone(),
                 }),
                 Box::new(NiriProvider::new(niri.clone())),
+                Box::new(system::BatteryProvider::new_default()),
+                Box::new(system::NetworkProvider::new_default()),
             ],
             niri,
         )
