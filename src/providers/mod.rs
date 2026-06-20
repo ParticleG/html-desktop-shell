@@ -1,10 +1,17 @@
 mod system;
 
-use std::{cell::RefCell, process::Command, rc::Rc};
+use std::{
+    cell::RefCell,
+    process::Command,
+    rc::Rc,
+    time::{Duration, Instant},
+};
 
 use gtk4::gio::prelude::ListModelExt;
 
 use crate::messages::{BRIDGE_VERSION, NativeMethodError};
+
+const NIRI_SNAPSHOT_CACHE_TTL: Duration = Duration::from_millis(500);
 
 pub trait Provider {
     fn name(&self) -> &'static str;
@@ -100,6 +107,12 @@ struct NiriController {
 struct NiriControllerState {
     detected: bool,
     workspace_indices: Vec<u64>,
+    cached_snapshot: Option<CachedNiriSnapshot>,
+}
+
+struct CachedNiriSnapshot {
+    captured_at: Instant,
+    value: serde_json::Value,
 }
 
 struct NiriProvider {
@@ -181,12 +194,48 @@ impl NiriController {
             state: Rc::new(RefCell::new(NiriControllerState {
                 detected,
                 workspace_indices: Vec::new(),
+                cached_snapshot: None,
             })),
         }
     }
 
-    fn detected(&self) -> bool {
-        self.state.borrow().detected
+    fn snapshot(&self) -> serde_json::Value {
+        {
+            let state = self.state.borrow();
+            if !state.detected {
+                return serde_json::json!({
+                    "available": false,
+                    "reason": "niri IPC unavailable",
+                });
+            }
+            if let Some(cached_snapshot) = &state.cached_snapshot
+                && cached_snapshot.captured_at.elapsed() < NIRI_SNAPSHOT_CACHE_TTL
+            {
+                return cached_snapshot.value.clone();
+            }
+        }
+
+        let value = serde_json::json!({
+            "available": true,
+            "focusedOutput": niri_part("focused-output", focused_output_snapshot_from_json),
+            "workspaces": self.workspaces_snapshot(),
+            "focusedWindow": niri_part("focused-window", focused_window_snapshot_from_json),
+        });
+        self.state.borrow_mut().cached_snapshot = Some(CachedNiriSnapshot {
+            captured_at: Instant::now(),
+            value: value.clone(),
+        });
+        value
+    }
+
+    fn workspaces_snapshot(&self) -> serde_json::Value {
+        match niri_msg_json("workspaces").and_then(|stdout| parse_workspaces(&stdout)) {
+            Ok(workspaces) => {
+                self.update_workspaces(&workspaces);
+                workspaces_value(workspaces)
+            }
+            Err(reason) => unavailable_part(reason),
+        }
     }
 
     fn update_workspaces(&self, workspaces: &[WorkspaceSnapshot]) {
@@ -224,24 +273,15 @@ impl NiriController {
         }
 
         focus_niri_workspace(workspace_id)
-            .map(|()| serde_json::json!({ "workspaceId": workspace_id }))
-            .map_err(|reason| NativeMethodError::new("niri_action_failed", reason))
+            .map_err(|reason| NativeMethodError::new("niri_action_failed", reason))?;
+        self.state.borrow_mut().cached_snapshot = None;
+        Ok(serde_json::json!({ "workspaceId": workspace_id }))
     }
 }
 
 impl NiriProvider {
     fn new(niri: NiriController) -> Self {
         Self { niri }
-    }
-
-    fn workspaces_snapshot(&self) -> serde_json::Value {
-        match niri_msg_json("workspaces").and_then(|stdout| parse_workspaces(&stdout)) {
-            Ok(workspaces) => {
-                self.niri.update_workspaces(&workspaces);
-                workspaces_value(workspaces)
-            }
-            Err(reason) => unavailable_part(reason),
-        }
     }
 }
 
@@ -251,19 +291,7 @@ impl Provider for NiriProvider {
     }
 
     fn snapshot(&self) -> serde_json::Value {
-        if !self.niri.detected() {
-            return serde_json::json!({
-                "available": false,
-                "reason": "niri IPC unavailable",
-            });
-        }
-
-        serde_json::json!({
-            "available": true,
-            "focusedOutput": niri_part("focused-output", focused_output_snapshot_from_json),
-            "workspaces": self.workspaces_snapshot(),
-            "focusedWindow": niri_part("focused-window", focused_window_snapshot_from_json),
-        })
+        self.niri.snapshot()
     }
 }
 
