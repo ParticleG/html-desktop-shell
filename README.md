@@ -187,15 +187,15 @@ Diagnostic flags exit without presenting panels unless combined with a normal ru
 
 ## Performance measurements
 
-Measured in the current niri session on 2026-06-19 with two monitors and `./target/debug/html-desktop-shell --config ./test/panel-default.toml`:
+Measured in the current niri session on 2026-06-19 with two monitors and `./target/debug/html-desktop-shell --config ./test/panel-default.toml`. KVM measurements were provided from a separate no-DE KVM smoke run.
 
-| Metric | Measured | Current niri gate |
-| --- | ---: | ---: |
-| Startup until first visible layer surface | 2.922 s | <= 3.7 s |
-| Idle CPU over 60 s while provider clock updates | 0.45% | <= 0.6% |
-| Resident memory after 60 s | 346.8 MiB | <= 434 MiB |
+| Metric | Current niri measured | Current niri gate | KVM measured | KVM gate |
+| --- | ---: | ---: | ---: | ---: |
+| Startup until first visible layer surface | 2.922 s | <= 3.7 s | 0.217 s | <= 0.28 s |
+| Idle CPU over 60 s while provider clock updates | 0.45% | <= 0.6% | 0.233% | <= 0.30% |
+| Resident memory after 60 s | 346.8 MiB | <= 434 MiB | 145.9 MiB | <= 183 MiB |
 
-The gates are the measured values plus 25% headroom. KVM performance gates remain pending until the KVM smoke path is measured.
+The gates are the measured values plus 25% headroom.
 
 ## Renderer diagnostics
 
@@ -316,7 +316,4 @@ Latest completed functional checks:
 - tty2 no-DE niri smoke: passed.
 - Raw TTY boundary: passed; running without a compositor exits with GTK display connection failure and opens no fallback window.
 - KVM no-DE smoke: passed on a separate machine.
-
-Open release evidence:
-
-- KVM performance measurement is not recorded yet, so KVM performance gates remain unset.
+- KVM performance measurement: passed on a separate machine with startup `0.217 s`, idle CPU `0.233%`, and RSS `145.9 MiB`.
