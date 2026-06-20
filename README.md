@@ -41,6 +41,15 @@ Expected `pkg-config` output:
 2.52.4
 ```
 
+## License
+
+Licensed under either of:
+
+- Apache License, Version 2.0 (`LICENSE-APACHE`)
+- MIT license (`LICENSE-MIT`)
+
+at your option.
+
 ## Build and run
 
 ```bash
@@ -48,6 +57,18 @@ cd ~/coding/RustroverProjects/html-desktop-shell
 cargo build
 ./target/debug/html-desktop-shell
 ```
+
+Local user install, without enabling services:
+
+```bash
+cargo build --release --locked
+install -Dm755 target/release/html-desktop-shell "$HOME/.local/bin/html-desktop-shell"
+mkdir -p "$HOME/.local/share/html-desktop-shell"
+cp -a web "$HOME/.local/share/html-desktop-shell/web"
+install -Dm644 packaging/html-desktop-shell.default.toml "$HOME/.config/html-desktop-shell/config.toml"
+```
+
+Then run `html-desktop-shell` from a layer-shell-capable Wayland session. Do not enable the user service until the manual current-session smoke passes.
 
 The binary intentionally has no X11 or normal-window fallback. If the compositor does not support layer-shell, it exits with:
 
@@ -109,15 +130,29 @@ Runtime web asset lookup checks, in order:
 1. `$HTML_DESKTOP_SHELL_WEB_DIR/index.html`
 2. `$PWD/web/index.html`
 3. compile-time manifest `web/index.html`
-4. `/usr/share/html-desktop-shell/web/index.html`
+4. `$XDG_DATA_HOME/html-desktop-shell/web/index.html`
+5. `~/.local/share/html-desktop-shell/web/index.html`
+6. `/usr/share/html-desktop-shell/web/index.html`
 
 Missing asset errors list every checked path.
 
-Local integration files are provided but never auto-installed:
+Local integration files are provided but never auto-enabled:
 
-- `packaging/html-desktop-shell.service`: systemd user service example using `%h/.local/bin/html-desktop-shell`.
-- `packaging/niri-spawn-html-desktop-shell.kdl`: niri startup snippet for a development checkout; replace the command with your installed binary path.
-- `packaging/PKGBUILD`: Arch package recipe that installs the binary to `/usr/bin/html-desktop-shell` and web assets to `/usr/share/html-desktop-shell/web`.
+- `packaging/html-desktop-shell.service`: systemd user service for the installed `/usr/bin/html-desktop-shell` binary.
+- `packaging/niri-spawn-html-desktop-shell.kdl`: niri startup snippet for an installed `html-desktop-shell` command.
+- `packaging/html-desktop-shell.default.toml`: installed default config example for `/usr/share/doc/html-desktop-shell/`.
+- `packaging/PKGBUILD`: Arch package recipe that installs the binary to `/usr/bin/html-desktop-shell`, web assets to `/usr/share/html-desktop-shell/web`, license files, and doc examples.
+
+
+Packaging verification commands executed for the current packaging layout:
+
+```bash
+cargo test
+cargo build --release --locked
+(cd packaging && makepkg --printsrcinfo)
+(cd packaging && makepkg --verifysource)
+HTML_DESKTOP_SHELL_BIN=./target/release/html-desktop-shell scripts/smoke-current-niri.sh
+```
 
 The repository also includes `scripts/smoke-current-niri.sh` for the current niri session. It starts the binary, waits, prints `niri msg -j layers`, and terminates the process. It does not switch VTs, create VMs, install packages, enable services, or modify user services.
 
