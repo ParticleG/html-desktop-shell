@@ -87,9 +87,16 @@ If a config file exists but is invalid, startup fails instead of silently fallin
 panel_height = 32
 layer = "top"
 keyboard_mode = "on-demand"
+
+[widgets]
+left = ["app-name", "workspaces", "focused-window"]
+center = ["clock"]
+right = ["battery", "network", "bridge-status"]
 ```
 
-The repository includes `test/panel-default.toml` with those defaults for explicit-config verification:
+`[widgets]` only controls rendering/layout. It does not grant bridge permissions. Unknown widget names are config errors. Omitted sides in `[widgets]` keep their defaults; explicit empty arrays such as `left = []` intentionally hide that side's configurable widgets.
+
+The repository includes `test/panel-default.toml` with the panel defaults for explicit-config verification; omitted `[widgets]` keeps the default widget layout:
 
 ```bash
 ./target/debug/html-desktop-shell --config ./test/panel-default.toml
