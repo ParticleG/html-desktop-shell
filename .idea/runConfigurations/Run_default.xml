@@ -1,5 +1,5 @@
 <component name="ProjectRunConfigurationManager">
-  <configuration default="false" name="Run html-desktop-shell" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
+  <configuration default="false" name="Run default" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
     <option name="buildProfileId" value="dev" />
     <option name="command" value="run --package html-desktop-shell --bin html-desktop-shell -- --config ./test/panel-default.toml" />
     <option name="workingDirectory" value="file://$PROJECT_DIR$" />

@@ -9,6 +9,7 @@ pub struct ShellConfig {
     pub panel_height: i32,
     pub layer: PanelLayer,
     pub keyboard_mode: PanelKeyboardMode,
+    pub widgets: WidgetLayout,
 }
 
 #[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize, PartialEq, Eq)]
@@ -27,12 +28,54 @@ pub enum PanelKeyboardMode {
     Exclusive,
 }
 
+#[derive(Clone, Debug, serde::Serialize, PartialEq, Eq)]
+pub struct WidgetLayout {
+    pub left: Vec<WidgetName>,
+    pub center: Vec<WidgetName>,
+    pub right: Vec<WidgetName>,
+}
+
+#[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum WidgetName {
+    AppName,
+    Workspaces,
+    FocusedWindow,
+    Clock,
+    Battery,
+    Network,
+    BridgeStatus,
+}
+
+impl WidgetName {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::AppName => "app-name",
+            Self::Workspaces => "workspaces",
+            Self::FocusedWindow => "focused-window",
+            Self::Clock => "clock",
+            Self::Battery => "battery",
+            Self::Network => "network",
+            Self::BridgeStatus => "bridge-status",
+        }
+    }
+}
+
 #[derive(Debug, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RawShellConfig {
     panel_height: Option<i32>,
     layer: Option<PanelLayer>,
     keyboard_mode: Option<PanelKeyboardMode>,
+    widgets: Option<RawWidgetLayout>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawWidgetLayout {
+    left: Option<Vec<WidgetName>>,
+    center: Option<Vec<WidgetName>>,
+    right: Option<Vec<WidgetName>>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -55,6 +98,25 @@ impl Default for ShellConfig {
             panel_height: 32,
             layer: PanelLayer::Top,
             keyboard_mode: PanelKeyboardMode::OnDemand,
+            widgets: WidgetLayout::default(),
+        }
+    }
+}
+
+impl Default for WidgetLayout {
+    fn default() -> Self {
+        Self {
+            left: vec![
+                WidgetName::AppName,
+                WidgetName::Workspaces,
+                WidgetName::FocusedWindow,
+            ],
+            center: vec![WidgetName::Clock],
+            right: vec![
+                WidgetName::Battery,
+                WidgetName::Network,
+                WidgetName::BridgeStatus,
+            ],
         }
     }
 }
@@ -207,6 +269,19 @@ fn parse_config(path: &Path, contents: &str) -> Result<ShellConfig, String> {
     }
     if let Some(keyboard_mode) = raw.keyboard_mode {
         config.keyboard_mode = keyboard_mode;
+    }
+    if let Some(widgets) = raw.widgets {
+        let mut layout = WidgetLayout::default();
+        if let Some(left) = widgets.left {
+            layout.left = left;
+        }
+        if let Some(center) = widgets.center {
+            layout.center = center;
+        }
+        if let Some(right) = widgets.right {
+            layout.right = right;
+        }
+        config.widgets = layout;
     }
 
     validate_config(path, &config)?;
@@ -381,5 +456,83 @@ keyboard_mode = "exclusive"
         .expect_err("duplicate --config should fail");
 
         assert_eq!(error, "duplicate --config argument");
+    }
+
+    #[test]
+    fn default_widget_layout_preserves_current_ui() {
+        let widgets = ShellConfig::default().widgets;
+
+        assert_eq!(
+            widgets.left,
+            [
+                WidgetName::AppName,
+                WidgetName::Workspaces,
+                WidgetName::FocusedWindow
+            ]
+        );
+        assert_eq!(widgets.center, [WidgetName::Clock]);
+        assert_eq!(
+            widgets.right,
+            [
+                WidgetName::Battery,
+                WidgetName::Network,
+                WidgetName::BridgeStatus
+            ]
+        );
+    }
+
+    #[test]
+    fn valid_widget_layout_config_loads() {
+        let config = parse_config(
+            Path::new("widgets.toml"),
+            r#"
+[widgets]
+left = ["app-name", "workspaces"]
+center = ["clock"]
+right = ["focused-window", "battery", "network"]
+"#,
+        )
+        .expect("valid widget layout should load");
+
+        assert_eq!(
+            config.widgets.left,
+            [WidgetName::AppName, WidgetName::Workspaces]
+        );
+        assert_eq!(config.widgets.center, [WidgetName::Clock]);
+        assert_eq!(
+            config.widgets.right,
+            [
+                WidgetName::FocusedWindow,
+                WidgetName::Battery,
+                WidgetName::Network
+            ]
+        );
+    }
+
+    #[test]
+    fn unknown_widget_name_is_rejected() {
+        let error = parse_config(
+            Path::new("widgets.toml"),
+            r#"
+[widgets]
+left = ["app-name", "not-a-widget"]
+"#,
+        )
+        .expect_err("unknown widget should fail");
+
+        assert!(error.contains("not-a-widget"));
+    }
+
+    #[test]
+    fn empty_widgets_section_preserves_default_layout() {
+        let config = parse_config(
+            Path::new("widgets.toml"),
+            r#"
+[widgets]
+"#,
+        )
+        .expect("empty widgets section should load");
+
+        assert_eq!(config.widgets, WidgetLayout::default());
     }
 }
