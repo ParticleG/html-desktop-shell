@@ -2,6 +2,9 @@ spawn-sh-at-startup "cd \"$HOME/html-desktop-shell\" && ./target/debug/html-desk
 spawn-at-startup "foot"
 
 binds {
+    Mod+T hotkey-overlay-title="Open Terminal" {
+        spawn "foot" ;
+    }
     Mod+Shift+E {
         quit ;
     }

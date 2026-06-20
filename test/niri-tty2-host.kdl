@@ -1,6 +1,10 @@
 spawn-sh-at-startup "cd $HOME/coding/RustroverProjects/html-desktop-shell && ./target/debug/html-desktop-shell --config ./test/panel-default.toml"
+spawn-at-startup "ghostty"
 
 binds {
+    Mod+T hotkey-overlay-title="Open Terminal" {
+        spawn "ghostty" ;
+    }
     Mod+Shift+E {
         quit ;
     }
