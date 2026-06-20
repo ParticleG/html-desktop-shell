@@ -10,7 +10,8 @@ const batteryStatus = document.getElementById("battery-status");
 const networkStatus = document.getElementById("network-status");
 const actionStatus = document.getElementById("action-status");
 const bridgeStatus = document.getElementById("bridge-status");
-const panelOutput = new URLSearchParams(window.location.search).get("panelOutput") || "";
+const urlParams = new URLSearchParams(window.location.search);
+const panelOutput = urlParams.get("panelOutput") || "";
 
 let actionStatusTimer = 0;
 let workspaceRenderKey = "";
@@ -299,6 +300,63 @@ function integerOrZero(value) {
   return Number.isInteger(value) ? value : 0;
 }
 
+function applyWidgetLayout() {
+  if (
+    !urlParams.has("widgetsLeft") &&
+    !urlParams.has("widgetsCenter") &&
+    !urlParams.has("widgetsRight")
+  ) {
+    return;
+  }
+
+  const sections = [
+    [document.getElementById("left-widgets"), parseWidgetList("widgetsLeft")],
+    [document.getElementById("center-widgets"), parseWidgetList("widgetsCenter")],
+    [document.getElementById("right-widgets"), parseWidgetList("widgetsRight")],
+  ];
+  const widgets = widgetElements();
+
+  for (const element of widgets.values()) {
+    element.remove();
+  }
+
+  for (const [section, names] of sections) {
+    for (const name of names) {
+      const element = widgets.get(name);
+      if (element) {
+        section.append(element);
+      }
+    }
+  }
+
+  const bridgeParent = bridgeStatus.parentElement;
+  if (bridgeParent) {
+    bridgeParent.insertBefore(actionStatus, bridgeStatus);
+  } else {
+    document.getElementById("right-widgets").append(actionStatus);
+  }
+}
+
+function parseWidgetList(paramName) {
+  const raw = urlParams.get(paramName);
+  if (!raw) {
+    return [];
+  }
+  return raw.split(",").filter(Boolean);
+}
+
+function widgetElements() {
+  return new Map([
+    ["app-name", document.getElementById("app-name")],
+    ["workspaces", workspaceStatus],
+    ["focused-window", focusedWindow],
+    ["clock", clock],
+    ["battery", batteryStatus],
+    ["network", networkStatus],
+    ["bridge-status", bridgeStatus],
+  ]);
+}
+
 function bridgeStatusText(state) {
   const backend = state.host?.backend || "unavailable";
   const monitorCount = state.host?.monitorCount;
@@ -317,5 +375,6 @@ function bridgeStatusText(state) {
   return parts.join(" · ");
 }
 
+applyWidgetLayout();
 void updateState();
 setInterval(updateState, STATE_POLL_INTERVAL_MS);
