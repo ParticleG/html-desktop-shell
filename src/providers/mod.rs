@@ -1,8 +1,8 @@
-use std::{process::Command, rc::Rc};
+use std::{cell::RefCell, process::Command, rc::Rc};
 
 use gtk4::gio::prelude::ListModelExt;
 
-use crate::messages::BRIDGE_VERSION;
+use crate::messages::{BRIDGE_VERSION, NativeMethodError};
 
 pub trait Provider {
     fn name(&self) -> &'static str;
@@ -12,17 +12,22 @@ pub trait Provider {
 #[derive(Clone)]
 pub struct ProviderRegistry {
     providers: Rc<Vec<Box<dyn Provider>>>,
+    niri: NiriController,
 }
 
 impl ProviderRegistry {
     pub fn new(monitors: &gtk4::gio::ListModel) -> Self {
-        Self::from_providers(vec![
-            Box::new(ClockProvider),
-            Box::new(HostProvider {
-                monitors: monitors.clone(),
-            }),
-            Box::new(NiriProvider::new()),
-        ])
+        let niri = NiriController::new();
+        Self::from_providers_with_niri(
+            vec![
+                Box::new(ClockProvider),
+                Box::new(HostProvider {
+                    monitors: monitors.clone(),
+                }),
+                Box::new(NiriProvider::new(niri.clone())),
+            ],
+            niri,
+        )
     }
 
     pub fn snapshot(&self) -> serde_json::Value {
@@ -33,9 +38,22 @@ impl ProviderRegistry {
         serde_json::Value::Object(state)
     }
 
+    pub fn focus_workspace(
+        &self,
+        workspace_id: u64,
+    ) -> Result<serde_json::Value, NativeMethodError> {
+        self.niri.focus_workspace(workspace_id)
+    }
+
+    #[cfg(test)]
     fn from_providers(providers: Vec<Box<dyn Provider>>) -> Self {
+        Self::from_providers_with_niri(providers, NiriController::with_detected(false))
+    }
+
+    fn from_providers_with_niri(providers: Vec<Box<dyn Provider>>, niri: NiriController) -> Self {
         Self {
             providers: Rc::new(providers),
+            niri,
         }
     }
 }
@@ -70,8 +88,18 @@ impl Provider for HostProvider {
     }
 }
 
-struct NiriProvider {
+#[derive(Clone)]
+struct NiriController {
+    state: Rc<RefCell<NiriControllerState>>,
+}
+
+struct NiriControllerState {
     detected: bool,
+    workspace_indices: Vec<u64>,
+}
+
+struct NiriProvider {
+    niri: NiriController,
 }
 
 #[derive(serde::Deserialize)]
@@ -139,10 +167,76 @@ impl From<NiriFocusedWindow> for FocusedWindowSnapshot {
     }
 }
 
-impl NiriProvider {
+impl NiriController {
     fn new() -> Self {
+        Self::with_detected(std::env::var_os("NIRI_SOCKET").is_some())
+    }
+
+    fn with_detected(detected: bool) -> Self {
         Self {
-            detected: std::env::var_os("NIRI_SOCKET").is_some(),
+            state: Rc::new(RefCell::new(NiriControllerState {
+                detected,
+                workspace_indices: Vec::new(),
+            })),
+        }
+    }
+
+    fn detected(&self) -> bool {
+        self.state.borrow().detected
+    }
+
+    fn update_workspaces(&self, workspaces: &[WorkspaceSnapshot]) {
+        let mut state = self.state.borrow_mut();
+        state.workspace_indices.clear();
+        state.workspace_indices.extend(
+            workspaces
+                .iter()
+                .map(|workspace| u64::from(workspace.index)),
+        );
+    }
+
+    fn focus_workspace(&self, workspace_id: u64) -> Result<serde_json::Value, NativeMethodError> {
+        if workspace_id == 0 {
+            return Err(NativeMethodError::new(
+                "invalid_params",
+                "params.workspaceId must be a positive integer",
+            ));
+        }
+
+        {
+            let state = self.state.borrow();
+            if !state.detected {
+                return Err(NativeMethodError::new(
+                    "niri_unavailable",
+                    "niri IPC unavailable",
+                ));
+            }
+            if !state.workspace_indices.contains(&workspace_id) {
+                return Err(NativeMethodError::new(
+                    "unknown_workspace",
+                    format!("workspace id {workspace_id} is not in the latest niri snapshot"),
+                ));
+            }
+        }
+
+        focus_niri_workspace(workspace_id)
+            .map(|()| serde_json::json!({ "workspaceId": workspace_id }))
+            .map_err(|reason| NativeMethodError::new("niri_action_failed", reason))
+    }
+}
+
+impl NiriProvider {
+    fn new(niri: NiriController) -> Self {
+        Self { niri }
+    }
+
+    fn workspaces_snapshot(&self) -> serde_json::Value {
+        match niri_msg_json("workspaces").and_then(|stdout| parse_workspaces(&stdout)) {
+            Ok(workspaces) => {
+                self.niri.update_workspaces(&workspaces);
+                workspaces_value(workspaces)
+            }
+            Err(reason) => unavailable_part(reason),
         }
     }
 }
@@ -153,7 +247,7 @@ impl Provider for NiriProvider {
     }
 
     fn snapshot(&self) -> serde_json::Value {
-        if !self.detected {
+        if !self.niri.detected() {
             return serde_json::json!({
                 "available": false,
                 "reason": "niri IPC unavailable",
@@ -163,7 +257,7 @@ impl Provider for NiriProvider {
         serde_json::json!({
             "available": true,
             "focusedOutput": niri_part("focused-output", focused_output_snapshot_from_json),
-            "workspaces": niri_part("workspaces", workspaces_snapshot_from_json),
+            "workspaces": self.workspaces_snapshot(),
             "focusedWindow": niri_part("focused-window", focused_window_snapshot_from_json),
         })
     }
@@ -205,6 +299,29 @@ fn niri_msg_json(request: &'static str) -> Result<Vec<u8>, String> {
     Ok(output.stdout)
 }
 
+fn focus_niri_workspace(workspace_id: u64) -> Result<(), String> {
+    let workspace_id = workspace_id.to_string();
+    let output = Command::new("niri")
+        .args(["msg", "action", "focus-workspace", workspace_id.as_str()])
+        .output()
+        .map_err(|error| format!("failed to run niri focus-workspace: {error}"))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stderr = stderr.trim();
+        return if stderr.is_empty() {
+            Err(format!(
+                "niri focus-workspace failed with status {}",
+                output.status
+            ))
+        } else {
+            Err(format!("niri focus-workspace failed: {stderr}"))
+        };
+    }
+
+    Ok(())
+}
+
 fn focused_output_snapshot_from_json(stdout: &[u8]) -> serde_json::Value {
     match parse_focused_output(stdout) {
         Ok(focused_output) => serde_json::json!({
@@ -220,14 +337,19 @@ fn parse_focused_output(stdout: &[u8]) -> Result<NiriFocusedOutput, String> {
         .map_err(|error| format!("failed to parse niri focused-output JSON: {error}"))
 }
 
+#[cfg(test)]
 fn workspaces_snapshot_from_json(stdout: &[u8]) -> serde_json::Value {
     match parse_workspaces(stdout) {
-        Ok(workspaces) => serde_json::json!({
-            "available": true,
-            "items": workspaces,
-        }),
+        Ok(workspaces) => workspaces_value(workspaces),
         Err(reason) => unavailable_part(reason),
     }
+}
+
+fn workspaces_value(workspaces: Vec<WorkspaceSnapshot>) -> serde_json::Value {
+    serde_json::json!({
+        "available": true,
+        "items": workspaces,
+    })
 }
 
 fn parse_workspaces(stdout: &[u8]) -> Result<Vec<WorkspaceSnapshot>, String> {
@@ -300,11 +422,45 @@ mod tests {
 
     #[test]
     fn niri_provider_reports_unavailable_when_not_detected() {
-        let provider = NiriProvider { detected: false };
+        let provider = NiriProvider::new(NiriController::with_detected(false));
         let snapshot = provider.snapshot();
 
         assert_eq!(snapshot["available"], false);
         assert_eq!(snapshot["reason"], "niri IPC unavailable");
+    }
+
+    #[test]
+    fn niri_controller_rejects_action_when_not_detected() {
+        let niri = NiriController::with_detected(false);
+        let error = niri
+            .focus_workspace(1)
+            .expect_err("undetected niri must reject actions");
+
+        assert_eq!(error.code, "niri_unavailable");
+        assert_eq!(error.message, "niri IPC unavailable");
+    }
+
+    #[test]
+    fn niri_controller_rejects_workspace_missing_from_latest_snapshot() {
+        let niri = NiriController::with_detected(true);
+        niri.update_workspaces(&[WorkspaceSnapshot {
+            id: 41,
+            index: 1,
+            name: None,
+            output: Some("eDP-1".to_owned()),
+            is_active: true,
+            is_focused: true,
+        }]);
+
+        let error = niri
+            .focus_workspace(2)
+            .expect_err("unknown workspace must reject before calling niri");
+
+        assert_eq!(error.code, "unknown_workspace");
+        assert_eq!(
+            error.message,
+            "workspace id 2 is not in the latest niri snapshot"
+        );
     }
 
     #[test]

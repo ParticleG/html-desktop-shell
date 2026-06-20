@@ -2,10 +2,12 @@ pub const BRIDGE_VERSION: u32 = 1;
 const METHOD_GET_CAPABILITIES: &str = "getCapabilities";
 const METHOD_GET_HOST_INFO: &str = "getHostInfo";
 const METHOD_GET_STATE: &str = "getState";
+const METHOD_NIRI_FOCUS_WORKSPACE: &str = "niriFocusWorkspace";
 const METHODS: &[&str] = &[
     METHOD_GET_HOST_INFO,
     METHOD_GET_CAPABILITIES,
     METHOD_GET_STATE,
+    METHOD_NIRI_FOCUS_WORKSPACE,
 ];
 
 pub fn capabilities() -> serde_json::Value {
@@ -36,21 +38,37 @@ pub struct NativeError {
     pub message: String,
 }
 
-pub fn handle_native_request<F>(raw: &str, state_snapshot: F) -> String
+#[derive(Debug)]
+pub struct NativeMethodError {
+    pub code: &'static str,
+    pub message: String,
+}
+
+impl NativeMethodError {
+    pub fn new(code: &'static str, message: impl Into<String>) -> Self {
+        Self {
+            code,
+            message: message.into(),
+        }
+    }
+}
+
+pub fn handle_native_request<S, A>(raw: &str, state_snapshot: S, focus_workspace: A) -> String
 where
-    F: FnOnce() -> serde_json::Value,
+    S: FnOnce() -> serde_json::Value,
+    A: FnOnce(u64) -> Result<serde_json::Value, NativeMethodError>,
 {
     match serde_json::from_str::<NativeRequest>(raw) {
-        Ok(request) => handle_request(&request, state_snapshot),
+        Ok(request) => handle_request(&request, state_snapshot, focus_workspace),
         Err(_) => bad_request_response(raw),
     }
 }
 
-fn handle_request<F>(request: &NativeRequest, state_snapshot: F) -> String
+fn handle_request<S, A>(request: &NativeRequest, state_snapshot: S, focus_workspace: A) -> String
 where
-    F: FnOnce() -> serde_json::Value,
+    S: FnOnce() -> serde_json::Value,
+    A: FnOnce(u64) -> Result<serde_json::Value, NativeMethodError>,
 {
-    let _params = &request.params;
     let response = match request.method.as_str() {
         METHOD_GET_HOST_INFO => ok_response(
             request.id.as_str(),
@@ -62,6 +80,12 @@ where
         ),
         METHOD_GET_CAPABILITIES => ok_response(request.id.as_str(), capabilities()),
         METHOD_GET_STATE => ok_response(request.id.as_str(), state_snapshot()),
+        METHOD_NIRI_FOCUS_WORKSPACE => {
+            match workspace_id_param(&request.params).and_then(focus_workspace) {
+                Ok(result) => ok_response(request.id.as_str(), result),
+                Err(error) => error_response(request.id.as_str(), error.code, error.message),
+            }
+        }
         method => error_response(
             request.id.as_str(),
             "unknown_method",
@@ -70,6 +94,27 @@ where
     };
 
     serialize_response(&response)
+}
+
+fn workspace_id_param(params: &serde_json::Value) -> Result<u64, NativeMethodError> {
+    let Some(workspace_id) = params
+        .get("workspaceId")
+        .and_then(serde_json::Value::as_u64)
+    else {
+        return Err(NativeMethodError::new(
+            "invalid_params",
+            "params.workspaceId must be a positive integer",
+        ));
+    };
+
+    if workspace_id == 0 {
+        return Err(NativeMethodError::new(
+            "invalid_params",
+            "params.workspaceId must be a positive integer",
+        ));
+    }
+
+    Ok(workspace_id)
 }
 
 fn ok_response(id: &str, result: serde_json::Value) -> NativeResponse<'_> {
@@ -136,7 +181,16 @@ mod tests {
     }
 
     fn handle(raw: &str) -> serde_json::Value {
-        response_value(&handle_native_request(raw, test_state))
+        handle_with_action(raw, |workspace_id| {
+            Ok(serde_json::json!({ "workspaceId": workspace_id }))
+        })
+    }
+
+    fn handle_with_action<F>(raw: &str, focus_workspace: F) -> serde_json::Value
+    where
+        F: FnOnce(u64) -> Result<serde_json::Value, NativeMethodError>,
+    {
+        response_value(&handle_native_request(raw, test_state, focus_workspace))
     }
 
     #[test]
@@ -170,10 +224,11 @@ mod tests {
             .expect("methods should be an array");
 
         assert_eq!(response["ok"], true);
-        assert_eq!(methods.len(), 3);
+        assert_eq!(methods.len(), 4);
         assert_eq!(methods[0], METHOD_GET_HOST_INFO);
         assert_eq!(methods[1], METHOD_GET_CAPABILITIES);
         assert_eq!(methods[2], METHOD_GET_STATE);
+        assert_eq!(methods[3], METHOD_NIRI_FOCUS_WORKSPACE);
     }
 
     #[test]
@@ -185,6 +240,7 @@ mod tests {
             "dbusCall",
             "httpRequest",
             "eval",
+            "niriAction",
         ];
 
         for method in forbidden {
@@ -201,6 +257,79 @@ mod tests {
         assert_eq!(response["result"]["clock"]["time"], "12:34:56");
         assert_eq!(response["result"]["host"]["monitorCount"], 2);
         assert_eq!(response["result"]["niri"]["available"], false);
+    }
+
+    #[test]
+    fn niri_focus_workspace_returns_action_result() {
+        let response =
+            handle(r#"{"id":"focus","method":"niriFocusWorkspace","params":{"workspaceId":3}}"#);
+
+        assert_eq!(response["id"], "focus");
+        assert_eq!(response["ok"], true);
+        assert_eq!(response["result"]["workspaceId"], 3);
+    }
+
+    #[test]
+    fn niri_focus_workspace_rejects_missing_workspace_id() {
+        let response = handle_with_action(
+            r#"{"id":"focus","method":"niriFocusWorkspace","params":{}}"#,
+            |_| panic!("invalid params must not call the action"),
+        );
+
+        assert_eq!(response["ok"], false);
+        assert_eq!(response["error"]["code"], "invalid_params");
+        assert_eq!(
+            response["error"]["message"],
+            "params.workspaceId must be a positive integer"
+        );
+    }
+
+    #[test]
+    fn niri_focus_workspace_rejects_zero_workspace_id() {
+        let response = handle_with_action(
+            r#"{"id":"focus","method":"niriFocusWorkspace","params":{"workspaceId":0}}"#,
+            |_| panic!("invalid params must not call the action"),
+        );
+
+        assert_eq!(response["ok"], false);
+        assert_eq!(response["error"]["code"], "invalid_params");
+    }
+
+    #[test]
+    fn niri_focus_workspace_rejects_unknown_workspace_id() {
+        let response = handle_with_action(
+            r#"{"id":"focus","method":"niriFocusWorkspace","params":{"workspaceId":9}}"#,
+            |workspace_id| {
+                Err(NativeMethodError::new(
+                    "unknown_workspace",
+                    format!("workspace id {workspace_id} is not in the latest niri snapshot"),
+                ))
+            },
+        );
+
+        assert_eq!(response["ok"], false);
+        assert_eq!(response["error"]["code"], "unknown_workspace");
+        assert_eq!(
+            response["error"]["message"],
+            "workspace id 9 is not in the latest niri snapshot"
+        );
+    }
+
+    #[test]
+    fn niri_focus_workspace_reports_unavailable_niri() {
+        let response = handle_with_action(
+            r#"{"id":"focus","method":"niriFocusWorkspace","params":{"workspaceId":1}}"#,
+            |_| {
+                Err(NativeMethodError::new(
+                    "niri_unavailable",
+                    "niri IPC unavailable",
+                ))
+            },
+        );
+
+        assert_eq!(response["ok"], false);
+        assert_eq!(response["error"]["code"], "niri_unavailable");
+        assert_eq!(response["error"]["message"], "niri IPC unavailable");
     }
 
     #[test]
