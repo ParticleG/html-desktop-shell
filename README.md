@@ -199,15 +199,17 @@ Diagnostic flags exit without presenting panels unless combined with a normal ru
 
 ## Performance measurements
 
-Measured in the current niri session on 2026-06-19 with two monitors and `./target/debug/html-desktop-shell --config ./test/panel-default.toml`. KVM measurements were provided from a separate no-DE KVM smoke run.
+Measured in the current niri session on 2026-06-20 with two monitors and `./target/debug/html-desktop-shell --config ./test/panel-default.toml`. KVM measurements were provided from a separate no-DE KVM smoke run before the system-widget phase and remain a manual release gate.
 
 | Metric | Current niri measured | Current niri gate | KVM measured | KVM gate |
 | --- | ---: | ---: | ---: | ---: |
-| Startup until first visible layer surface | 2.922 s | <= 3.7 s | 0.217 s | <= 0.28 s |
-| Idle CPU over 60 s while provider clock updates | 0.45% | <= 0.6% | 0.233% | <= 0.30% |
-| Resident memory after 60 s | 346.8 MiB | <= 434 MiB | 145.9 MiB | <= 183 MiB |
+| Startup until first visible layer surface | 2.701 s | <= 3.38 s | 0.217 s | <= 0.28 s |
+| Idle CPU over 60 s while providers update | 0.567% | <= 0.71% | 0.233% | <= 0.30% |
+| Resident memory after 60 s | 365.8 MiB | <= 457.3 MiB | 145.9 MiB | <= 183 MiB |
 
 The gates are the measured values plus 25% headroom.
+
+Niri polling decision: 30 measured iterations of `focused-output`, `workspaces`, and `focused-window` took 17.293 ms mean / 19.357 ms max for all three commands. With two panels, the shared niri snapshot cache keeps idle CPU under the current-session gate, so this implementation keeps subprocess polling for now instead of adding an event stream reader. The cache TTL is 500 ms and is invalidated after `niriFocusWorkspace`.
 
 ## Renderer diagnostics
 
