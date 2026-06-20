@@ -12,30 +12,33 @@ High-level flow:
 
 ```text
 Wayland compositor
-  -> GTK4 layer-shell ApplicationWindow (top layer, 32px exclusive zone)
+  -> GTK4 layer-shell ApplicationWindow per active monitor
   -> WebKitGTK WebView
-  -> local web/index.html + shell.css + shell.js
+  -> local web/index.html + shell.css + web/js/*.js
   -> WebKit script message handler named "shell"
-  -> Rust bridge returns HOST_INFO_JSON
-  -> JS updates #bridge-status
+  -> Rust bridge returns versioned JSON responses
+  -> JS polls getState and updates panel widgets
 ```
 
 Key modules:
 
-- `src/main.rs`: creates `gtk4::Application` with `APP_ID`, calls `shell_window::shell_window_new()` on activation, presents the window on success, logs and quits on error.
-- `src/shell_window.rs`: owns layer-shell setup, panel geometry, WebView creation, bridge attachment, local `web/index.html` resolution, and WebKit load-failure logging.
-- `src/bridge.rs`: registers the single WebKit message handler `shell` and returns static JSON: `{"shell":"html-desktop-shell","backend":"wayland-layer-shell"}`.
+- `src/main.rs`: creates `gtk4::Application` with `APP_ID`, loads config and diagnostics, owns `ShellHost` for the application lifetime.
+- `src/shell_host.rs`: owns monitor enumeration, hotplug rebuilds, provider registry, and WebView asset lookup.
+- `src/shell_window.rs`: creates one layer-shell/WebKit panel for a specific monitor.
+- `src/bridge.rs`: registers the single WebKit message handler `shell` and routes versioned bridge requests.
+- `src/messages.rs`: native bridge wire protocol, capabilities, and tests.
+- `src/providers/`: native state providers used by `getState`.
 - `web/`: static panel UI. No bundler, no remote resources, no CDN.
 - `test/`: niri compositor configs for manual QA, not automated test code.
 
 Important invariants:
 
 - Call `gtk4_layer_shell::is_supported()` before creating the panel behavior. Unsupported layer-shell is fatal and should remain a clean `Err` path.
-- Keep the panel `32px` high. `PANEL_HEIGHT`, CSS heights, and the exclusive zone must stay in sync.
-- The window is top-layer, anchored left/right/top, not bottom, with `KeyboardMode::OnDemand`.
+- Default panel height is 32px, but `panel_height` config may change it. Native exclusive zone/default size and CSS layout must stay consistent.
+- Defaults are top layer, left/right/top anchors, no bottom anchor, and `KeyboardMode::OnDemand`; config may change layer and keyboard mode only through typed values.
 - Connect the WebKit reply callback before registering the `shell` message handler.
-- The bridge is intentionally minimal. Do not add filesystem, process, network, DBus, clipboard, screenshot, notification, or session-control access without an explicit design change.
-- `web_index_path()` checks the current directory first, then `CARGO_MANIFEST_DIR`; preserve this development/run-from-elsewhere behavior.
+- The bridge is deny-by-default. Do not add filesystem, process, network, DBus, clipboard, screenshot, notification, session-control, or generic eval access without an explicit design change.
+- Web asset lookup checks `$HTML_DESKTOP_SHELL_WEB_DIR`, `$PWD/web`, compile-time manifest `web`, then `/usr/share/html-desktop-shell/web`; missing asset errors should list every checked path.
 
 ## Key Directories
 
@@ -44,17 +47,17 @@ Important invariants:
   - `shell_window.rs`: layer-shell panel host and WebView loader.
   - `bridge.rs`: JS-to-Rust WebKit bridge.
 - `web/`: local HTML/CSS/JS panel content.
-  - `index.html`: fixed DOM anchors: `#app-name`, `#clock`, `#bridge-status`.
-  - `shell.css`: 32px translucent top-bar layout.
-  - `shell.js`: clock update and bridge-status update.
+  - `index.html`: fixed DOM anchors: `#app-name`, `#clock`, `#bridge-status`, and widget regions.
+  - `shell.css`: translucent top-bar layout sized by the native panel window.
+  - `js/`: local ES modules for bridge requests and panel rendering. No bundler.
 - `test/`: manual niri QA configs.
   - `niri-tty2-host.kdl`: host tty2 no-DE/display-manager test.
   - `niri-kvm-guest.kdl`: KVM guest no-DE/display-manager test, also starts `foot`.
-- `docs/`: design history. `docs/html-desktop-shell-plan.md` is the detailed implementation plan and records rejected alternatives.
+- `docs/`: roadmap and design history. `docs/html-desktop-shell-feature-roadmap.md` is the active feature roadmap after the foundational layer-shell work.
 
 ## Development Commands
 
-Use Cargo directly; there are no wrapper scripts, workspace config, `build.rs`, Node/Bun/npm tooling, or web asset build steps.
+Use Cargo directly for builds. The repository also has `scripts/smoke-current-niri.sh` for current-session smoke checks. There is no workspace config, `build.rs`, Node/Bun/npm tooling, or web asset build step.
 
 ```bash
 cargo build
@@ -92,7 +95,7 @@ Rust:
 - Naming: `snake_case` functions/modules, `SCREAMING_SNAKE_CASE` constants, GTK types from gtk-rs.
 - Error handling: return `Result` with simple strings at module boundaries; log with `eprintln!`; avoid panics in runtime paths.
 - No async Rust runtime and no worker threads. GTK/WebKit callbacks run on the GTK main loop.
-- Prefer explicit constants for magic values: `APP_ID`, `PANEL_HEIGHT`, `PANEL_NAMESPACE`, `HOST_INFO_JSON`, `HANDLER_NAME`.
+- Prefer explicit constants for magic values: `APP_ID`, `PANEL_NAMESPACE_PREFIX`, `BRIDGE_VERSION`, `HANDLER_NAME`.
 - Keep fallibility visible. Layer-shell unsupported and missing `web/index.html` are fatal; bridge attach failure is logged but the panel may still render.
 
 Web:
@@ -100,20 +103,20 @@ Web:
 - Plain HTML/CSS/JS only. No bundler, framework, package manager, or remote assets.
 - DOM IDs are stable integration points: `app-name`, `clock`, `bridge-status`, `shell-bar`.
 - JS uses `async`/`await` only for the WebKit bridge call and catches bridge failures by showing `bridge: unavailable`.
-- CSS assumes a 32px panel; update CSS and Rust constants together.
+- CSS must adapt to the native panel height; Rust config/exclusive zone and visual layout must stay consistent.
 
 State management:
 
-- Native state is effectively static after window creation.
-- Browser-side state is limited to the live clock text and bridge status text.
-- No dependency injection framework, global service registry, persistence layer, IPC server, or background task system exists.
+- Native state is held by `ShellHost`, provider snapshots, config, and monitor list handles.
+- Browser-side state is derived from `getState` polling and should remain small, explicit DOM text/classes.
+- No dependency injection framework, persistence layer, IPC server, async runtime, or background thread system exists.
 
 ## Important Files
 
 - `Cargo.toml`: crate manifest and dependency versions (`gtk4`, `gtk4-layer-shell`, `webkit6`, `javascriptcore6`, `glib`).
 - `Cargo.lock`: locked Rust dependency graph; keep it updated with dependency changes.
 - `README.md`: authoritative user-facing build, run, dependency, support-matrix, and manual verification instructions.
-- `docs/html-desktop-shell-plan.md`: design rationale and rejected alternatives. Check before changing architecture or support boundaries.
+- `docs/html-desktop-shell-feature-roadmap.md`: active post-foundation feature roadmap. Check before adding panel widgets or native bridge capabilities.
 - `src/shell_window.rs`: highest-risk file for compositor behavior, window geometry, and WebKit loading.
 - `src/bridge.rs`: security-sensitive boundary between web UI and native host.
 - `test/*.kdl`: manual compositor-session entry points.
