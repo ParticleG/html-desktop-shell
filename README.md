@@ -144,7 +144,7 @@ Expected observable result:
 - One 32px panel appears at the top of each detected monitor; with one monitor, this is one panel.
 - Left text is `HTML Shell`.
 - Center clock updates every second.
-- Right side renders niri workspaces, the focused window title/app id, and compact bridge/monitor/niri output status. Without niri it shows explicit unavailable state.
+- Right side renders clickable niri workspaces for that panel's GDK monitor connector, the focused window title/app id, and compact bridge/monitor/niri output status. Without niri it shows explicit unavailable state.
 - `niri msg -j layers` shows one top-layer surface per detected monitor with namespace `html-desktop-shell-panel-<index>`, such as `html-desktop-shell-panel-0`.
 - Maximized windows do not cover the top 32px area on any panel output, proving the exclusive zone is active.
 - Adding or removing monitors after startup triggers a full panel rebuild with the same `html-desktop-shell-panel-<index>` namespace pattern. If rebuild fails, the previous panel set remains running and the error is printed to stderr.
@@ -156,8 +156,9 @@ The only WebKit native message handler is `shell`. Browser code sends versioned 
 - `getHostInfo`: returns shell name, `wayland-layer-shell` backend, and bridge version `1`.
 - `getCapabilities`: returns the supported method list.
 - `getState`: returns provider snapshots for clock, host, and optional niri state.
+- `niriFocusWorkspace`: accepts `{ "workspaceId": <positive integer> }`, verifies the workspace index exists in the most recent `getState` niri workspace snapshot, then runs only `niri msg action focus-workspace <workspaceId>`.
 
-Unknown or malformed requests return structured errors. The bridge intentionally does not expose filesystem, process, network, DBus, clipboard, screenshot, notification, session-control, or generic eval access.
+Unknown or malformed requests return structured errors. Workspace action failures render a short panel error and do not stop polling. The bridge intentionally does not expose filesystem, process, network, DBus, clipboard, screenshot, notification, session-control, generic eval, generic command execution, or generic niri action access.
 
 ## Provider state
 
@@ -170,6 +171,8 @@ State providers:
 - `niri`: when `NIRI_SOCKET` exists, runs `niri msg -j focused-output`, `niri msg -j workspaces`, and `niri msg -j focused-window`. The bridge exposes parsed focused output, workspace id/index/name/output/focus state, and focused window title/app id; it does not pass raw niri JSON through to the browser. Without niri, it returns `{"available":false,"reason":"niri IPC unavailable"}` and does not block panel startup.
 
 The niri provider intentionally uses the installed `niri msg` command for this phase. Each niri part reports its own `{"available":false,"reason":"..."}` state on command or schema failure, so malformed niri output does not prevent panel startup. This is simple and source-compatible with the current system, but it is a polling diagnostic path, not a low-latency IPC subscription.
+
+Each panel URI includes `panelOutput=<connector>` from `GdkMonitor::connector()`. The browser filters workspace buttons to that output, so a panel does not expose workspace buttons for another monitor.
 
 ## Process diagnostics
 
