@@ -144,7 +144,7 @@ Expected observable result:
 - One 32px panel appears at the top of each detected monitor; with one monitor, this is one panel.
 - Left text is `HTML Shell`.
 - Center clock updates every second.
-- Right text changes from `bridge: pending` to provider-backed status containing `bridge: wayland-layer-shell`, monitor count, and niri availability/focused output when available.
+- Right side renders niri workspaces, the focused window title/app id, and compact bridge/monitor/niri output status. Without niri it shows explicit unavailable state.
 - `niri msg -j layers` shows one top-layer surface per detected monitor with namespace `html-desktop-shell-panel-<index>`, such as `html-desktop-shell-panel-0`.
 - Maximized windows do not cover the top 32px area on any panel output, proving the exclusive zone is active.
 - Adding or removing monitors after startup triggers a full panel rebuild with the same `html-desktop-shell-panel-<index>` namespace pattern. If rebuild fails, the previous panel set remains running and the error is printed to stderr.
@@ -167,9 +167,9 @@ State providers:
 
 - `clock`: returns local time as `HH:MM:SS`.
 - `host`: returns backend, active monitor count, and bridge version.
-- `niri`: when `NIRI_SOCKET` exists, runs `niri msg -j focused-output` as a diagnostic provider and reports the focused output name. Without niri, it returns `{"available":false,"reason":"niri IPC unavailable"}` and does not block panel startup.
+- `niri`: when `NIRI_SOCKET` exists, runs `niri msg -j focused-output`, `niri msg -j workspaces`, and `niri msg -j focused-window`. The bridge exposes parsed focused output, workspace id/index/name/output/focus state, and focused window title/app id; it does not pass raw niri JSON through to the browser. Without niri, it returns `{"available":false,"reason":"niri IPC unavailable"}` and does not block panel startup.
 
-The niri provider intentionally uses the installed `niri msg` command for this phase. This is simple and source-compatible with the current system, but it is a polling diagnostic path, not a low-latency IPC subscription.
+The niri provider intentionally uses the installed `niri msg` command for this phase. Each niri part reports its own `{"available":false,"reason":"..."}` state on command or schema failure, so malformed niri output does not prevent panel startup. This is simple and source-compatible with the current system, but it is a polling diagnostic path, not a low-latency IPC subscription.
 
 ## Process diagnostics
 
