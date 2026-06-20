@@ -74,6 +74,71 @@ struct NiriProvider {
     detected: bool,
 }
 
+#[derive(serde::Deserialize)]
+struct NiriFocusedOutput {
+    name: String,
+}
+
+#[derive(serde::Deserialize)]
+struct NiriWorkspace {
+    id: u64,
+    idx: u8,
+    name: Option<String>,
+    output: Option<String>,
+    is_active: bool,
+    is_focused: bool,
+}
+
+#[derive(Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkspaceSnapshot {
+    id: u64,
+    index: u8,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    output: Option<String>,
+    is_active: bool,
+    is_focused: bool,
+}
+
+#[derive(serde::Deserialize)]
+struct NiriFocusedWindow {
+    title: Option<String>,
+    app_id: Option<String>,
+}
+
+#[derive(Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct FocusedWindowSnapshot {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    app_id: Option<String>,
+}
+
+impl From<NiriWorkspace> for WorkspaceSnapshot {
+    fn from(workspace: NiriWorkspace) -> Self {
+        Self {
+            id: workspace.id,
+            index: workspace.idx,
+            name: workspace.name,
+            output: workspace.output,
+            is_active: workspace.is_active,
+            is_focused: workspace.is_focused,
+        }
+    }
+}
+
+impl From<NiriFocusedWindow> for FocusedWindowSnapshot {
+    fn from(window: NiriFocusedWindow) -> Self {
+        Self {
+            title: window.title,
+            app_id: window.app_id,
+        }
+    }
+}
+
 impl NiriProvider {
     fn new() -> Self {
         Self {
@@ -95,16 +160,12 @@ impl Provider for NiriProvider {
             });
         }
 
-        match focused_output_name() {
-            Ok(focused_output) => serde_json::json!({
-                "available": true,
-                "focusedOutput": focused_output,
-            }),
-            Err(reason) => serde_json::json!({
-                "available": false,
-                "reason": reason,
-            }),
-        }
+        serde_json::json!({
+            "available": true,
+            "focusedOutput": niri_part("focused-output", focused_output_snapshot_from_json),
+            "workspaces": niri_part("workspaces", workspaces_snapshot_from_json),
+            "focusedWindow": niri_part("focused-window", focused_window_snapshot_from_json),
+        })
     }
 }
 
@@ -115,27 +176,97 @@ fn current_time() -> String {
         .unwrap_or_else(|_| "--:--:--".to_owned())
 }
 
-fn focused_output_name() -> Result<String, String> {
+fn niri_part(request: &'static str, parser: fn(&[u8]) -> serde_json::Value) -> serde_json::Value {
+    match niri_msg_json(request) {
+        Ok(stdout) => parser(&stdout),
+        Err(reason) => unavailable_part(reason),
+    }
+}
+
+fn niri_msg_json(request: &'static str) -> Result<Vec<u8>, String> {
     let output = Command::new("niri")
-        .args(["msg", "-j", "focused-output"])
+        .args(["msg", "-j", request])
         .output()
-        .map_err(|error| format!("failed to run niri msg: {error}"))?;
+        .map_err(|error| format!("failed to run niri msg {request}: {error}"))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("niri msg failed: {}", stderr.trim()));
+        let stderr = stderr.trim();
+        return if stderr.is_empty() {
+            Err(format!(
+                "niri msg {request} failed with status {}",
+                output.status
+            ))
+        } else {
+            Err(format!("niri msg {request} failed: {stderr}"))
+        };
     }
 
-    let focused_output = serde_json::from_slice::<serde_json::Value>(&output.stdout)
-        .map_err(|error| format!("failed to parse niri focused-output JSON: {error}"))?;
-    let Some(name) = focused_output
-        .get("name")
-        .and_then(serde_json::Value::as_str)
-    else {
-        return Err("niri focused-output response missing string name".to_owned());
-    };
+    Ok(output.stdout)
+}
 
-    Ok(name.to_owned())
+fn focused_output_snapshot_from_json(stdout: &[u8]) -> serde_json::Value {
+    match parse_focused_output(stdout) {
+        Ok(focused_output) => serde_json::json!({
+            "available": true,
+            "name": focused_output.name,
+        }),
+        Err(reason) => unavailable_part(reason),
+    }
+}
+
+fn parse_focused_output(stdout: &[u8]) -> Result<NiriFocusedOutput, String> {
+    serde_json::from_slice::<NiriFocusedOutput>(stdout)
+        .map_err(|error| format!("failed to parse niri focused-output JSON: {error}"))
+}
+
+fn workspaces_snapshot_from_json(stdout: &[u8]) -> serde_json::Value {
+    match parse_workspaces(stdout) {
+        Ok(workspaces) => serde_json::json!({
+            "available": true,
+            "items": workspaces,
+        }),
+        Err(reason) => unavailable_part(reason),
+    }
+}
+
+fn parse_workspaces(stdout: &[u8]) -> Result<Vec<WorkspaceSnapshot>, String> {
+    let workspaces = serde_json::from_slice::<Vec<NiriWorkspace>>(stdout)
+        .map_err(|error| format!("failed to parse niri workspaces JSON: {error}"))?;
+    let mut workspaces = workspaces
+        .into_iter()
+        .map(WorkspaceSnapshot::from)
+        .collect::<Vec<_>>();
+    workspaces.sort_by(|a, b| {
+        a.output
+            .cmp(&b.output)
+            .then(a.index.cmp(&b.index))
+            .then(a.id.cmp(&b.id))
+    });
+    Ok(workspaces)
+}
+
+fn focused_window_snapshot_from_json(stdout: &[u8]) -> serde_json::Value {
+    match parse_focused_window(stdout) {
+        Ok(window) => serde_json::json!({
+            "available": true,
+            "window": window,
+        }),
+        Err(reason) => unavailable_part(reason),
+    }
+}
+
+fn parse_focused_window(stdout: &[u8]) -> Result<Option<FocusedWindowSnapshot>, String> {
+    let window = serde_json::from_slice::<Option<NiriFocusedWindow>>(stdout)
+        .map_err(|error| format!("failed to parse niri focused-window JSON: {error}"))?;
+    Ok(window.map(FocusedWindowSnapshot::from))
+}
+
+fn unavailable_part(reason: String) -> serde_json::Value {
+    serde_json::json!({
+        "available": false,
+        "reason": reason,
+    })
 }
 
 #[cfg(test)]
@@ -174,6 +305,84 @@ mod tests {
 
         assert_eq!(snapshot["available"], false);
         assert_eq!(snapshot["reason"], "niri IPC unavailable");
+    }
+
+    #[test]
+    fn parses_valid_workspaces_json() {
+        let snapshot = workspaces_snapshot_from_json(
+            br#"[
+                {
+                    "id": 42,
+                    "idx": 2,
+                    "name": null,
+                    "output": "eDP-1",
+                    "is_active": false,
+                    "is_focused": false
+                },
+                {
+                    "id": 41,
+                    "idx": 1,
+                    "name": "code",
+                    "output": "eDP-1",
+                    "is_active": true,
+                    "is_focused": true
+                }
+            ]"#,
+        );
+
+        assert_eq!(snapshot["available"], true);
+        assert_eq!(snapshot["items"][0]["id"], 41);
+        assert_eq!(snapshot["items"][0]["index"], 1);
+        assert_eq!(snapshot["items"][0]["name"], "code");
+        assert_eq!(snapshot["items"][0]["output"], "eDP-1");
+        assert_eq!(snapshot["items"][0]["isActive"], true);
+        assert_eq!(snapshot["items"][0]["isFocused"], true);
+        assert!(snapshot["items"][1].get("name").is_none());
+    }
+
+    #[test]
+    fn parses_valid_focused_window_json() {
+        let snapshot = focused_window_snapshot_from_json(
+            br#"{
+                "id": 7,
+                "title": "cargo test",
+                "app_id": "Terminal",
+                "workspace_id": 41,
+                "is_focused": true
+            }"#,
+        );
+
+        assert_eq!(snapshot["available"], true);
+        assert_eq!(snapshot["window"]["title"], "cargo test");
+        assert_eq!(snapshot["window"]["appId"], "Terminal");
+    }
+
+    #[test]
+    fn parses_empty_focused_window_json() {
+        let snapshot = focused_window_snapshot_from_json(b"null");
+
+        assert_eq!(snapshot["available"], true);
+        assert!(snapshot["window"].is_null());
+    }
+
+    #[test]
+    fn malformed_workspaces_json_returns_unavailable_part() {
+        let snapshot = workspaces_snapshot_from_json(
+            br#"[{
+                "idx": 1,
+                "output": "eDP-1",
+                "is_active": true,
+                "is_focused": true
+            }]"#,
+        );
+
+        assert_eq!(snapshot["available"], false);
+        assert!(
+            snapshot["reason"]
+                .as_str()
+                .expect("reason should be a string")
+                .contains("failed to parse niri workspaces JSON")
+        );
     }
 
     #[test]
