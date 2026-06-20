@@ -306,3 +306,17 @@ KVM failure handling:
 - If VM graphics fail with 3D enabled, retry VM creation without `gl.enable=yes` and `accel3d=yes`; this tests protocol behavior but not the GPU path.
 - If `niri --config ./test/niri-kvm-guest.kdl` starts but the panel reports no layer-shell support, run `wayland-info` in the guest niri session and inspect whether `zwlr_layer_shell_v1` is listed. If absent, stop and report a compositor/protocol mismatch.
 - If the 9p mount fails, stop the KVM test and report the 9p/libvirt filesystem failure. Do not invent a different transfer path in this execution.
+
+## Release validation status
+
+Latest completed functional checks:
+
+- Current niri smoke: passed with one panel on each detected monitor.
+- Monitor topology rebuild: passed by physically unplugging and reconnecting the external display. The rebuilt panel may appear above dankbar until dankbar recreates its own layer surface; this is compositor stacking behavior with another top-layer client, not an html-desktop-shell fallback path.
+- tty2 no-DE niri smoke: passed.
+- Raw TTY boundary: passed; running without a compositor exits with GTK display connection failure and opens no fallback window.
+- KVM no-DE smoke: passed on a separate machine.
+
+Open release evidence:
+
+- KVM performance measurement is not recorded yet, so KVM performance gates remain unset.
