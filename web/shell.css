@@ -35,6 +35,8 @@ body {
 #clock,
 #workspace-status,
 #focused-window,
+#battery-status,
+#network-status,
 #action-status,
 #bridge-status {
   line-height: 1;
@@ -117,6 +119,12 @@ body {
   min-width: 8ch;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+#battery-status,
+#network-status {
+  color: #d1fae5;
+  flex: 0 0 auto;
 }
 
 #action-status {

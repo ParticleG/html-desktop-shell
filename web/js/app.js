@@ -6,6 +6,8 @@ const ACTION_ERROR_VISIBLE_MS = 4000;
 const clock = document.getElementById("clock");
 const workspaceStatus = document.getElementById("workspace-status");
 const focusedWindow = document.getElementById("focused-window");
+const batteryStatus = document.getElementById("battery-status");
+const networkStatus = document.getElementById("network-status");
 const actionStatus = document.getElementById("action-status");
 const bridgeStatus = document.getElementById("bridge-status");
 const panelOutput = new URLSearchParams(window.location.search).get("panelOutput") || "";
@@ -18,10 +20,12 @@ async function updateState() {
     const state = await getState();
     clock.textContent = state.clock?.time || "--:--:--";
     renderNiriState(state.niri);
+    renderSystemWidgets(state);
     bridgeStatus.textContent = bridgeStatusText(state);
   } catch (_error) {
     clock.textContent = "--:--:--";
     renderUnavailableNiri("bridge unavailable");
+    renderSystemUnavailable("bridge unavailable");
     bridgeStatus.textContent = "bridge: unavailable";
   }
 }
@@ -218,6 +222,81 @@ function focusedWindowText(appId, title) {
     return `${appId} — ${title}`;
   }
   return title || appId || "focused window";
+}
+
+function renderSystemWidgets(state) {
+  renderBattery(state.battery);
+  renderNetwork(state.network);
+}
+
+function renderSystemUnavailable(reason) {
+  batteryStatus.hidden = true;
+  batteryStatus.textContent = "";
+  batteryStatus.title = reason;
+  networkStatus.textContent = "net: unavailable";
+  networkStatus.title = reason;
+}
+
+function renderBattery(battery) {
+  if (!battery?.available) {
+    batteryStatus.hidden = true;
+    batteryStatus.textContent = "";
+    batteryStatus.title = battery?.reason || "battery unavailable";
+    return;
+  }
+
+  const percentage = Number.isInteger(battery.percentage) ? `${battery.percentage}%` : "?";
+  const status = typeof battery.status === "string" ? ` ${battery.status}` : "";
+  batteryStatus.hidden = false;
+  batteryStatus.textContent = `bat: ${percentage}${status}`;
+  batteryStatus.title = batteryTitle(battery);
+}
+
+function batteryTitle(battery) {
+  const batteries = Array.isArray(battery.batteries) ? battery.batteries : [];
+  if (batteries.length === 0) {
+    return batteryStatus.textContent;
+  }
+  return batteries
+    .map((item) => `${item.name}: ${item.percentage}% ${item.status}`)
+    .join(" · ");
+}
+
+function renderNetwork(network) {
+  if (!network?.available) {
+    networkStatus.textContent = "net: unavailable";
+    networkStatus.title = network?.reason || "network unavailable";
+    return;
+  }
+
+  const parts = [];
+  appendNetworkPart(parts, "wired", network.wired);
+  appendNetworkPart(parts, "wifi", network.wireless);
+  networkStatus.textContent = `net: ${parts.length > 0 ? parts.join(" · ") : "unknown"}`;
+  networkStatus.title = networkTitle(network);
+}
+
+function appendNetworkPart(parts, label, counts) {
+  const up = integerOrZero(counts?.up);
+  const down = integerOrZero(counts?.down);
+  if (up + down === 0) {
+    return;
+  }
+  parts.push(`${label} ${up > 0 ? "up" : "down"}`);
+}
+
+function networkTitle(network) {
+  const interfaces = Array.isArray(network.interfaces) ? network.interfaces : [];
+  if (interfaces.length === 0) {
+    return networkStatus.textContent;
+  }
+  return interfaces
+    .map((item) => `${item.name}: ${item.kind} ${item.state}`)
+    .join(" · ");
+}
+
+function integerOrZero(value) {
+  return Number.isInteger(value) ? value : 0;
 }
 
 function bridgeStatusText(state) {
