@@ -1,0 +1,8 @@
+panel_height = 32
+layer = "top"
+keyboard_mode = "on-demand"
+
+[widgets]
+left = ["app-name", "workspaces", "focused-window"]
+center = ["clock"]
+right = ["battery", "network", "bridge-status"]

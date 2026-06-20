@@ -1,4 +1,3 @@
-// Example niri startup snippet for a development checkout.
-// Replace the command with your installed binary path, for example:
-// spawn-at-startup "html-desktop-shell"
-spawn-sh-at-startup "cd $HOME/coding/RustroverProjects/html-desktop-shell && ./target/debug/html-desktop-shell --config ./test/panel-default.toml"
+// Example niri startup snippet for an installed package.
+// This does not enable services by itself; copy it into your niri config only after manual testing.
+spawn-at-startup "html-desktop-shell"

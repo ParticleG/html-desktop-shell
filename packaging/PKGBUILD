@@ -3,8 +3,8 @@ pkgver=0.1.0
 pkgrel=1
 pkgdesc='GTK4 WebKit desktop panel for Wayland layer-shell compositors'
 arch=('x86_64')
-url='https://example.invalid/html-desktop-shell'
-license=('LicenseRef-NotProvided')
+url='https://github.com/ParticleG/html-desktop-shell'
+license=('MIT' 'Apache-2.0')
 depends=('gtk4' 'gtk4-layer-shell' 'webkitgtk-6.0')
 makedepends=('cargo')
 source=("$pkgname::file://$PWD/..")
@@ -19,7 +19,10 @@ package() {
   cd "$srcdir/$pkgname"
   install -Dm755 target/release/html-desktop-shell "$pkgdir/usr/bin/html-desktop-shell"
   install -Dm644 packaging/html-desktop-shell.service "$pkgdir/usr/lib/systemd/user/html-desktop-shell.service"
+  install -Dm644 packaging/html-desktop-shell.default.toml "$pkgdir/usr/share/doc/html-desktop-shell/html-desktop-shell.default.toml"
   install -Dm644 packaging/niri-spawn-html-desktop-shell.kdl "$pkgdir/usr/share/doc/html-desktop-shell/niri-spawn-html-desktop-shell.kdl"
   install -Dm644 README.md "$pkgdir/usr/share/doc/html-desktop-shell/README.md"
+  install -Dm644 LICENSE-MIT "$pkgdir/usr/share/licenses/html-desktop-shell/LICENSE-MIT"
+  install -Dm644 LICENSE-APACHE "$pkgdir/usr/share/licenses/html-desktop-shell/LICENSE-APACHE"
   cp -a web "$pkgdir/usr/share/html-desktop-shell/"
 }
