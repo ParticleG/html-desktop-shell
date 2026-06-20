@@ -35,6 +35,7 @@ body {
 #clock,
 #workspace-status,
 #focused-window,
+#action-status,
 #bridge-status {
   line-height: 1;
   white-space: nowrap;
@@ -81,11 +82,22 @@ body {
 }
 
 .workspace-item {
+  appearance: none;
+  background: transparent;
+  border: 0;
   border-radius: 999px;
   color: #d1fae5;
+  cursor: pointer;
+  font: inherit;
+  line-height: 1;
   min-width: 1.5em;
   padding: 3px 6px;
   text-align: center;
+}
+
+.workspace-item:focus-visible {
+  outline: 2px solid #f5f7fb;
+  outline-offset: 2px;
 }
 
 .workspace-item.is-active {
@@ -107,7 +119,20 @@ body {
   text-overflow: ellipsis;
 }
 
+#action-status {
+  color: #fca5a5;
+  flex: 0 0 auto;
+}
+
 #bridge-status {
   color: #94a3b8;
   flex: 0 0 auto;
+}
+
+.gutter-x-md {
+  margin-left: -16px;
+}
+
+.gutter-x-md > * {
+  margin-left: 16px;
 }

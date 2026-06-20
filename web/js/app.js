@@ -1,9 +1,17 @@
-import { getState } from "./bridge.js";
+import { focusWorkspace, getState } from "./bridge.js";
+
+const STATE_POLL_INTERVAL_MS = 1000;
+const ACTION_ERROR_VISIBLE_MS = 4000;
 
 const clock = document.getElementById("clock");
 const workspaceStatus = document.getElementById("workspace-status");
 const focusedWindow = document.getElementById("focused-window");
+const actionStatus = document.getElementById("action-status");
 const bridgeStatus = document.getElementById("bridge-status");
+const panelOutput = new URLSearchParams(window.location.search).get("panelOutput") || "";
+
+let actionStatusTimer = 0;
+let workspaceRenderKey = "";
 
 async function updateState() {
   try {
@@ -29,6 +37,7 @@ function renderNiriState(niri) {
 }
 
 function renderUnavailableNiri(reason) {
+  workspaceRenderKey = "";
   workspaceStatus.textContent = "workspaces: unavailable";
   workspaceStatus.title = reason;
   focusedWindow.textContent = "window: unavailable";
@@ -38,30 +47,52 @@ function renderUnavailableNiri(reason) {
 function renderWorkspaces(workspaces) {
   if (!workspaces?.available) {
     const reason = workspaces?.reason || "workspaces unavailable";
+    workspaceRenderKey = "";
     workspaceStatus.textContent = "workspaces: unavailable";
     workspaceStatus.title = reason;
     return;
   }
 
   const items = Array.isArray(workspaces.items) ? workspaces.items : [];
-  if (items.length === 0) {
+  const visibleItems = panelOutput
+    ? items.filter((workspace) => workspace.output === panelOutput)
+    : items;
+  if (visibleItems.length === 0) {
+    workspaceRenderKey = "";
     workspaceStatus.textContent = "workspaces: none";
-    workspaceStatus.title = "niri reported no workspaces";
+    workspaceStatus.title = panelOutput
+      ? `niri reported no workspaces for ${panelOutput}`
+      : "niri reported no workspaces";
     return;
   }
+
+  const renderKey = workspaceRenderSignature(visibleItems);
+  if (renderKey === workspaceRenderKey) {
+    return;
+  }
+  workspaceRenderKey = renderKey;
 
   const prefix = document.createElement("span");
   prefix.className = "workspace-prefix";
   prefix.textContent = "workspaces:";
   workspaceStatus.replaceChildren(prefix);
-  workspaceStatus.title = "";
+  workspaceStatus.title = panelOutput ? `workspaces on ${panelOutput}` : "";
 
-  for (const workspace of items) {
-    const item = document.createElement("span");
+  for (const workspace of visibleItems) {
+    const item = document.createElement("button");
+    const workspaceId = workspaceActionId(workspace);
+    item.type = "button";
     item.className = "workspace-item";
     item.textContent = workspaceLabel(workspace);
-    item.dataset.workspaceId = String(workspace.id ?? "");
     item.title = workspaceTitle(workspace);
+    item.setAttribute("aria-label", `Focus ${item.title}`);
+    if (Number.isInteger(workspaceId)) {
+      item.dataset.workspaceId = String(workspaceId);
+      item.addEventListener("pointerdown", handleWorkspacePointerDown);
+      item.addEventListener("keydown", handleWorkspaceKeyDown);
+    } else {
+      item.disabled = true;
+    }
     if (workspace.isActive) {
       item.classList.add("is-active");
     }
@@ -71,6 +102,74 @@ function renderWorkspaces(workspaces) {
     }
     workspaceStatus.append(item);
   }
+}
+
+function workspaceRenderSignature(items) {
+  return JSON.stringify(
+    items.map((workspace) => [
+      workspace.id,
+      workspace.index,
+      workspace.name || "",
+      workspace.output || "",
+      Boolean(workspace.isActive),
+      Boolean(workspace.isFocused),
+    ]),
+  );
+}
+
+function workspaceActionId(workspace) {
+  if (Number.isInteger(workspace?.index) && workspace.index > 0) {
+    return workspace.index;
+  }
+  return null;
+}
+
+function handleWorkspacePointerDown(event) {
+  if (event.button !== 0) {
+    return;
+  }
+  event.preventDefault();
+  void focusWorkspaceFromButton(event.currentTarget);
+}
+
+function handleWorkspaceKeyDown(event) {
+  if (event.key !== "Enter" && event.key !== " ") {
+    return;
+  }
+  event.preventDefault();
+  void focusWorkspaceFromButton(event.currentTarget);
+}
+
+async function focusWorkspaceFromButton(button) {
+  const workspaceId = Number(button.dataset.workspaceId);
+  if (!Number.isInteger(workspaceId) || workspaceId <= 0) {
+    return;
+  }
+
+  clearActionStatus();
+  button.disabled = true;
+  try {
+    await focusWorkspace(workspaceId);
+  } catch (error) {
+    showActionError(error);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+function clearActionStatus() {
+  window.clearTimeout(actionStatusTimer);
+  actionStatusTimer = 0;
+  actionStatus.textContent = "";
+  actionStatus.title = "";
+}
+
+function showActionError(error) {
+  const detail = error instanceof Error ? error.message : "workspace switch failed";
+  actionStatus.textContent = "workspace switch failed";
+  actionStatus.title = detail;
+  window.clearTimeout(actionStatusTimer);
+  actionStatusTimer = window.setTimeout(clearActionStatus, ACTION_ERROR_VISIBLE_MS);
 }
 
 function workspaceLabel(workspace) {
@@ -89,7 +188,7 @@ function workspaceLabel(workspace) {
 function workspaceTitle(workspace) {
   const label = workspaceLabel(workspace);
   const output = typeof workspace?.output === "string" ? workspace.output : "unknown output";
-  return `${label} on ${output}`;
+  return `workspace ${label} on ${output}`;
 }
 
 function renderFocusedWindow(focusedWindowState) {
@@ -140,4 +239,4 @@ function bridgeStatusText(state) {
 }
 
 void updateState();
-setInterval(updateState, 1000);
+setInterval(updateState, STATE_POLL_INTERVAL_MS);

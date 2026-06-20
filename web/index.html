@@ -9,15 +9,16 @@
   </head>
   <body>
     <main id="shell-bar" aria-label="Desktop shell panel">
-      <section id="left-widgets" aria-label="Left panel widgets">
+      <section class="gutter-x-md" id="left-widgets" aria-label="Left panel widgets">
         <div id="app-name">HTML Shell</div>
-      </section>
-      <section id="center-widgets" aria-label="Center panel widgets">
-        <div id="clock">--:--:--</div>
-      </section>
-      <section id="right-widgets" aria-label="Right panel widgets">
         <div id="workspace-status" aria-label="Niri workspaces">workspaces: pending</div>
         <div id="focused-window" aria-label="Focused window">window: pending</div>
+      </section>
+      <section class="gutter-x-md" id="center-widgets" aria-label="Center panel widgets">
+        <div id="clock">--:--:--</div>
+      </section>
+      <section class="gutter-x-md" id="right-widgets" aria-label="Right panel widgets">
+        <div id="action-status" role="status" aria-live="polite"></div>
         <div id="bridge-status">bridge: pending</div>
       </section>
     </main>

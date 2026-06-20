@@ -22,3 +22,7 @@ export function getCapabilities() {
 export function getState() {
   return request("getState");
 }
+
+export function focusWorkspace(workspaceId) {
+  return request("niriFocusWorkspace", { workspaceId });
+}
