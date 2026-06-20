@@ -33,6 +33,8 @@ body {
 #right-widgets,
 #app-name,
 #clock,
+#workspace-status,
+#focused-window,
 #bridge-status {
   line-height: 1;
   white-space: nowrap;
@@ -52,7 +54,12 @@ body {
 
 #right-widgets {
   color: #a7f3d0;
+  flex: 1 1 auto;
+  gap: 10px;
+  justify-content: flex-end;
   margin-left: auto;
+  min-width: 0;
+  overflow: hidden;
 }
 
 #left-widgets,
@@ -60,4 +67,47 @@ body {
 #right-widgets {
   align-items: center;
   display: flex;
+}
+
+#left-widgets {
+  flex: 0 0 auto;
+}
+
+#workspace-status {
+  align-items: center;
+  display: flex;
+  flex: 0 0 auto;
+  gap: 4px;
+}
+
+.workspace-item {
+  border-radius: 999px;
+  color: #d1fae5;
+  min-width: 1.5em;
+  padding: 3px 6px;
+  text-align: center;
+}
+
+.workspace-item.is-active {
+  background: rgba(16, 185, 129, 0.18);
+}
+
+.workspace-item.is-focused {
+  background: #a7f3d0;
+  color: #111827;
+  font-weight: 700;
+}
+
+#focused-window {
+  color: #f5f7fb;
+  flex: 1 1 18ch;
+  max-width: 38vw;
+  min-width: 8ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#bridge-status {
+  color: #94a3b8;
+  flex: 0 0 auto;
 }
