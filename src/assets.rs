@@ -4,6 +4,7 @@ use std::{
 };
 
 const WEB_INDEX: &str = "index.html";
+const GENERATED_WEB_DIR: &str = "web-dist";
 const LOCAL_WEB_DIR: &str = ".local/share/html-desktop-shell/web";
 const XDG_WEB_DIR: &str = "html-desktop-shell/web";
 const INSTALLED_WEB_DIR: &str = "/usr/share/html-desktop-shell/web";
@@ -50,8 +51,8 @@ fn web_index_candidates(
         candidates.push(absolute_web_dir(&current_dir, PathBuf::from(web_dir)).join(WEB_INDEX));
     }
 
-    candidates.push(current_dir.join("web").join(WEB_INDEX));
-    candidates.push(manifest_dir.join("web").join(WEB_INDEX));
+    candidates.push(current_dir.join(GENERATED_WEB_DIR).join(WEB_INDEX));
+    candidates.push(manifest_dir.join(GENERATED_WEB_DIR).join(WEB_INDEX));
     if let Some(xdg_data_home) = xdg_data_home {
         candidates.push(
             PathBuf::from(xdg_data_home)
@@ -81,7 +82,7 @@ fn format_missing_web_index(candidates: &[PathBuf]) -> String {
         .map(|path| path.display().to_string())
         .collect::<Vec<_>>()
         .join(", ");
-    format!("missing web/index.html: checked {checked_paths}")
+    format!("missing web assets index.html: checked {checked_paths}")
 }
 
 #[cfg(test)]
@@ -123,8 +124,8 @@ mod tests {
         let current_dir = root.join("current");
         let manifest_dir = root.join("manifest");
         write_index(&env_dir);
-        write_index(&current_dir.join("web"));
-        write_index(&manifest_dir.join("web"));
+        write_index(&current_dir.join(GENERATED_WEB_DIR));
+        write_index(&manifest_dir.join(GENERATED_WEB_DIR));
 
         let path = resolve_web_index(
             Some(env_dir.clone().into_os_string()),
@@ -157,13 +158,13 @@ mod tests {
         let root = temp_root("current-first");
         let current_dir = root.join("current");
         let manifest_dir = root.join("manifest");
-        write_index(&current_dir.join("web"));
-        write_index(&manifest_dir.join("web"));
+        write_index(&current_dir.join(GENERATED_WEB_DIR));
+        write_index(&manifest_dir.join(GENERATED_WEB_DIR));
 
         let path = resolve_web_index(None, current_dir.clone(), manifest_dir)
             .expect("current web dir should resolve");
 
-        assert_eq!(path, current_dir.join("web").join(WEB_INDEX));
+        assert_eq!(path, current_dir.join(GENERATED_WEB_DIR).join(WEB_INDEX));
     }
 
     #[test]
@@ -206,7 +207,7 @@ mod tests {
         assert!(
             error.contains(
                 current_dir
-                    .join("web")
+                    .join(GENERATED_WEB_DIR)
                     .join(WEB_INDEX)
                     .to_string_lossy()
                     .as_ref()
@@ -215,7 +216,7 @@ mod tests {
         assert!(
             error.contains(
                 manifest_dir
-                    .join("web")
+                    .join(GENERATED_WEB_DIR)
                     .join(WEB_INDEX)
                     .to_string_lossy()
                     .as_ref()

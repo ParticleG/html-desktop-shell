@@ -6,11 +6,16 @@ arch=('x86_64')
 url='https://github.com/ParticleG/html-desktop-shell'
 license=('MIT' 'Apache-2.0')
 depends=('gtk4' 'gtk4-layer-shell' 'webkitgtk-6.0')
-makedepends=('cargo')
+makedepends=('bun' 'cargo')
 source=("$pkgname::file://$PWD/..")
 sha256sums=('SKIP')
 
 build() {
+  cd "$srcdir/$pkgname/web"
+  bun install --frozen-lockfile
+  bun run typecheck
+  bun test
+  bun run build
   cd "$srcdir/$pkgname"
   cargo build --release --locked
 }
@@ -24,5 +29,6 @@ package() {
   install -Dm644 README.md "$pkgdir/usr/share/doc/html-desktop-shell/README.md"
   install -Dm644 LICENSE-MIT "$pkgdir/usr/share/licenses/html-desktop-shell/LICENSE-MIT"
   install -Dm644 LICENSE-APACHE "$pkgdir/usr/share/licenses/html-desktop-shell/LICENSE-APACHE"
-  cp -a web "$pkgdir/usr/share/html-desktop-shell/"
+  install -dm755 "$pkgdir/usr/share/html-desktop-shell/web"
+  cp -a web-dist/. "$pkgdir/usr/share/html-desktop-shell/web/"
 }
