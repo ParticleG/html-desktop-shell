@@ -1,0 +1,34 @@
+:root {
+  color-scheme: dark;
+  font-family: system-ui, sans-serif;
+}
+
+body {
+  background: #111827;
+  color: #f5f7fb;
+  margin: 0;
+  padding: 24px;
+}
+
+main {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  max-width: 640px;
+  padding: 20px;
+}
+
+dl {
+  display: grid;
+  gap: 8px 16px;
+  grid-template-columns: max-content 1fr;
+}
+
+dt {
+  color: #a7f3d0;
+  font-weight: 700;
+}
+
+dd {
+  margin: 0;
+}

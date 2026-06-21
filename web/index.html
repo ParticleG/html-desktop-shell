@@ -1,28 +1,12 @@
 <!doctype html>
 <html lang="en">
   <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>HTML Shell</title>
-    <link rel="stylesheet" href="shell.css">
-    <script type="module" src="js/app.js"></script>
   </head>
   <body>
-    <main id="shell-bar" aria-label="Desktop shell panel">
-      <section class="gutter-x-md" id="left-widgets" aria-label="Left panel widgets">
-        <div id="app-name">HTML Shell</div>
-        <div id="workspace-status" aria-label="Niri workspaces">workspaces: pending</div>
-        <div id="focused-window" aria-label="Focused window">window: pending</div>
-      </section>
-      <section class="gutter-x-md" id="center-widgets" aria-label="Center panel widgets">
-        <div id="clock">--:--:--</div>
-      </section>
-      <section class="gutter-x-md" id="right-widgets" aria-label="Right panel widgets">
-        <div id="battery-status" hidden></div>
-        <div id="network-status">net: pending</div>
-        <div id="action-status" role="status" aria-live="polite"></div>
-        <div id="bridge-status">bridge: pending</div>
-      </section>
-    </main>
+    <div id="app"></div>
+    <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

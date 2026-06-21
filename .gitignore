@@ -1,6 +1,10 @@
 # Rust build artifacts
 /target/
 
+# Frontend build artifacts
+/web/node_modules/
+/web-dist/
+
 # Local environment files
 .env
 .env.*

@@ -5,7 +5,8 @@
 }
 
 html,
-body {
+body,
+#app {
   height: 100vh;
   margin: 0;
   overflow: hidden;
@@ -43,14 +44,24 @@ body {
   white-space: nowrap;
 }
 
-#app-name {
-  font-weight: 700;
+#left-widgets,
+#center-widgets,
+#right-widgets,
+.widget-with-icon,
+.workspace-status,
+.panel-tag {
+  align-items: center;
+  display: flex;
+}
+
+#left-widgets {
+  flex: 0 0 auto;
 }
 
 #center-widgets {
   font-variant-numeric: tabular-nums;
-  position: absolute;
   left: 50%;
+  position: absolute;
   top: 50%;
   transform: translate(-50%, -50%);
 }
@@ -65,48 +76,59 @@ body {
   overflow: hidden;
 }
 
-#left-widgets,
-#center-widgets,
-#right-widgets {
-  align-items: center;
-  display: flex;
-}
-
-#left-widgets {
-  flex: 0 0 auto;
+#app-name {
+  font-weight: 700;
 }
 
 #workspace-status {
-  align-items: center;
-  display: flex;
   flex: 0 0 auto;
   gap: 4px;
 }
 
-.workspace-item {
-  appearance: none;
+.widget-with-icon,
+.panel-tag {
+  gap: 4px;
+}
+
+.widget-icon {
+  flex: 0 0 auto;
+}
+
+.workspace-item.p-button,
+.workspace-item.p-button.p-button-text,
+.workspace-item.p-button.p-button-rounded {
   background: transparent;
   border: 0;
   border-radius: 999px;
   color: #d1fae5;
   cursor: pointer;
   font: inherit;
+  height: 20px;
   line-height: 1;
   min-width: 1.5em;
   padding: 3px 6px;
-  text-align: center;
 }
 
-.workspace-item:focus-visible {
+.workspace-item.p-button .p-button-label {
+  font-weight: inherit;
+  line-height: 1;
+}
+
+.workspace-item:focus-visible,
+.workspace-item.p-button:focus-visible {
   outline: 2px solid #f5f7fb;
   outline-offset: 2px;
 }
 
-.workspace-item.is-active {
+.workspace-item.is-active,
+.workspace-item.is-active.p-button,
+.workspace-item.is-active.p-button.p-button-text {
   background: rgba(16, 185, 129, 0.18);
 }
 
-.workspace-item.is-focused {
+.workspace-item.is-focused,
+.workspace-item.is-focused.p-button,
+.workspace-item.is-focused.p-button.p-button-text {
   background: #a7f3d0;
   color: #111827;
   font-weight: 700;
@@ -117,6 +139,11 @@ body {
   flex: 1 1 18ch;
   max-width: 38vw;
   min-width: 8ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#focused-window span {
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -135,6 +162,17 @@ body {
 #bridge-status {
   color: #94a3b8;
   flex: 0 0 auto;
+}
+
+.panel-tag.p-tag {
+  background: transparent;
+  border-radius: 0;
+  color: inherit;
+  font: inherit;
+  font-weight: 400;
+  height: 20px;
+  line-height: 1;
+  padding: 0;
 }
 
 .gutter-x-md {
