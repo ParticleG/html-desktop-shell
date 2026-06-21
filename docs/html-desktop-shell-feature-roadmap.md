@@ -8,10 +8,10 @@ The previous foundation roadmap is complete. The project now has a stable Waylan
 - full panel rebuild when GDK monitor topology changes;
 - no X11, compositor-less TTY, Electron, or normal GTK window fallback;
 - runtime config from `--config`, XDG config, or built-in defaults;
-- versioned WebKit bridge with `getHostInfo`, `getCapabilities`, and `getState`;
-- native state providers for clock, host, and diagnostic niri output state;
-- local ES modules under `web/js/` with no frontend build step;
-- runtime web asset lookup for development and installed layouts;
+- versioned WebKit bridge with `getHostInfo`, `getCapabilities`, `getState`, and precise action methods;
+- native state providers for clock, host, niri output/workspace/window, battery, and network state;
+- framework-agnostic native bridge API plus official Vue 3 sample frontend under `web/`;
+- local production assets built to `web-dist/` and installed as web assets;
 - systemd user service, niri snippet, Arch `PKGBUILD`, and current-session smoke script;
 - diagnostic CLI flags and measured current-niri/KVM performance gates.
 
@@ -23,7 +23,7 @@ Every phase must keep these boundaries intact:
 
 - This app remains a Wayland `zwlr_layer_shell_v1` client, not a compositor.
 - No X11, raw TTY, normal-window, Electron, or DE/display-manager fallback.
-- Web assets remain local plain HTML/CSS/JS. No bundler, CDN, remote scripts, framework, Node/Bun/npm toolchain, or generated frontend assets.
+- Frontend build artifacts are local, reproducible through the Bun lockfile, and no remote runtime resources are loaded.
 - Native bridge remains deny-by-default.
 - No generic native bridge methods such as `runCommand`, `readFile`, `writeFile`, `dbusCall`, `httpRequest`, `eval`, or generic `niriAction`.
 - Any privileged action must have one exact method name, one exact JSON parameter schema, and one explicit UI caller.
@@ -188,33 +188,32 @@ Recommended order:
 - Desktop/KVM without battery: battery widget hides.
 - Network changes show up without crashing.
 
-## Phase 11 — Widget layout configuration
+## Phase 11 — Frontend-owned widget layout
 
 ### Goal
 
-Make visible widgets configurable after widgets exist.
+Keep widget placement, visibility, and styling owned by the frontend. Rust config remains limited to native panel shape.
 
-Example config:
+Official sample layout lives in `web/src/layout.ts`:
 
-```toml
-[widgets]
-left = ["app-name", "workspaces"]
-center = ["clock"]
-right = ["focused-window", "battery", "network"]
+```ts
+export const panelLayout = {
+  left: ["appName", "workspaces", "focusedWindow"],
+  center: ["clock"],
+  right: ["battery", "network", "actionStatus", "bridgeStatus"],
+};
 ```
 
 Rules:
 
-- Defaults preserve the current UI.
-- Unknown widget names are config errors, not silently ignored.
-- Widget config affects only rendering/layout; it does not grant bridge permissions.
+- Rust TOML has no `[widgets]` section; `serde(deny_unknown_fields)` rejects it.
+- Custom frontends replace or build static assets; Rust only requires the native bridge schema.
+- Widget layout changes do not grant bridge permissions.
 
 ### Tests
 
-- Config defaults.
-- Valid widget layout.
-- Unknown widget rejection.
-- Empty section behavior.
+- Config rejects `[widgets]`.
+- Frontend view-model tests cover layout-dependent workspace filtering and status text.
 
 ## Phase 12 — Niri event-stream provider
 
@@ -263,4 +262,4 @@ These are intentionally not next:
 
 Implement Phase 8: read-only niri workspace and focused-window status.
 
-This is the smallest step that makes the bar visibly useful while preserving the current safe architecture: one existing `getState` bridge method, no new action permissions, no DBus, no frontend toolchain, and no compositor fallback.
+This is the smallest step that makes the bar visibly useful while preserving the current safe architecture: one existing `getState` bridge method, no new action permissions, no DBus access, no remote runtime resources, and no compositor fallback.

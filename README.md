@@ -1,6 +1,6 @@
 # HTML Desktop Shell
 
-Rust + GTK4 + WebKitGTK 6.0 + GTK4 layer-shell prototype for a top desktop panel implemented with local HTML/CSS/JS.
+Rust + GTK4 + WebKitGTK 6.0 + GTK4 layer-shell prototype for a top desktop panel implemented with local static web assets.
 
 ## Dependencies
 
@@ -11,6 +11,7 @@ Runtime/build dependencies used by this prototype:
 - `gtk4`
 - `gtk4-layer-shell`
 - `webkitgtk-6.0`
+- `bun` for the official Vue/Vite frontend sample build
 - A Wayland compositor that exposes `zwlr_layer_shell_v1`
 
 Before installing `webkitgtk-6.0`, verify that the transaction still adds only this package:
@@ -54,6 +55,12 @@ at your option.
 
 ```bash
 cd ~/coding/RustroverProjects/html-desktop-shell
+cd web
+bun install
+bun run typecheck
+bun test
+bun run build
+cd ..
 cargo build
 ./target/debug/html-desktop-shell
 ```
@@ -61,10 +68,17 @@ cargo build
 Local user install, without enabling services:
 
 ```bash
+cd ~/coding/RustroverProjects/html-desktop-shell
+cd web
+bun install
+bun run typecheck
+bun test
+bun run build
+cd ..
 cargo build --release --locked
 install -Dm755 target/release/html-desktop-shell "$HOME/.local/bin/html-desktop-shell"
-mkdir -p "$HOME/.local/share/html-desktop-shell"
-cp -a web "$HOME/.local/share/html-desktop-shell/web"
+mkdir -p "$HOME/.local/share/html-desktop-shell/web"
+cp -a web-dist/. "$HOME/.local/share/html-desktop-shell/web/"
 install -Dm644 packaging/html-desktop-shell.default.toml "$HOME/.config/html-desktop-shell/config.toml"
 ```
 
@@ -93,7 +107,7 @@ No DE/display manager is required. A Wayland compositor is required. Completely 
 
 ## Configuration
 
-Configuration controls panel shape only. It does not enable behavior plugins or extra native capabilities.
+Configuration controls native panel shape only. It does not enable behavior plugins, widget layout, or extra native capabilities.
 
 Lookup order:
 
@@ -108,16 +122,11 @@ If a config file exists but is invalid, startup fails instead of silently fallin
 panel_height = 32
 layer = "top"
 keyboard_mode = "on-demand"
-
-[widgets]
-left = ["app-name", "workspaces", "focused-window"]
-center = ["clock"]
-right = ["battery", "network", "bridge-status"]
 ```
 
-`[widgets]` only controls rendering/layout. It does not grant bridge permissions. Unknown widget names are config errors. Omitted sides in `[widgets]` keep their defaults; explicit empty arrays such as `left = []` intentionally hide that side's configurable widgets.
+Rust config owns only native panel shape: `panel_height`, `layer`, and `keyboard_mode`. Widget display, position, hiding, and styling are frontend-owned. The official sample layout is `web/src/layout.ts`; custom frontends may change that file or replace the entire static asset directory. A `[widgets]` TOML section is now rejected as an unknown field.
 
-The repository includes `test/panel-default.toml` with the panel defaults for explicit-config verification; omitted `[widgets]` keeps the default widget layout:
+The repository includes `test/panel-default.toml` with the panel defaults for explicit-config verification:
 
 ```bash
 ./target/debug/html-desktop-shell --config ./test/panel-default.toml
@@ -125,33 +134,65 @@ The repository includes `test/panel-default.toml` with the panel defaults for ex
 
 ## Web assets and local integration
 
+`web/` contains the official Vue 3 + Vite + TypeScript sample frontend source. `web-dist/` is generated runtime output and is not committed. Runtime only loads local static assets; it never loads CDN scripts, remote icon APIs, remote fonts, or remote theme assets.
+
 Runtime web asset lookup checks, in order:
 
 1. `$HTML_DESKTOP_SHELL_WEB_DIR/index.html`
-2. `$PWD/web/index.html`
-3. compile-time manifest `web/index.html`
+2. `$PWD/web-dist/index.html`
+3. compile-time manifest `web-dist/index.html`
 4. `$XDG_DATA_HOME/html-desktop-shell/web/index.html`
 5. `~/.local/share/html-desktop-shell/web/index.html`
 6. `/usr/share/html-desktop-shell/web/index.html`
 
 Missing asset errors list every checked path.
 
+### Custom frontend contract
+
+Vue is the official sample frontend, not a core requirement. A custom frontend can use Vue, React, Svelte, Solid, plain HTML, or any other build output if it generates a static directory containing `index.html` and talks to the native bridge.
+
+The stable frontend API is the framework-agnostic `@html-desktop-shell/shell-api` package. It wraps the WebKit message handler:
+
+```js
+window.webkit.messageHandlers.shell.postMessage({ id, method, params })
+```
+
+Requests and responses must follow the `@html-desktop-shell/shell-api` schema. Rust does not inspect the frontend framework or build tool; it only serves the selected static assets and answers the exact native bridge methods.
+
+### Official sample stack
+
+The bundled sample uses:
+
+- Vue 3 + Vite + TypeScript, built by Bun with a committed `web/bun.lock`.
+- PrimeVue styled mode with the Aura preset for local bundled components/theme.
+- `@lucide/vue` for tree-shakable local SVG icon components.
+- Pinia for `hostInfo`, provider state, bridge/action errors, and refresh state.
+- Vue Router with `createMemoryHistory()` so routes never depend on file/browser URL mutation.
+- `vue-i18n` Composition API mode with English messages.
+- VueUse `useIntervalFn` for the one-second polling lifecycle.
+
 Local integration files are provided but never auto-enabled:
 
 - `packaging/html-desktop-shell.service`: systemd user service for the installed `/usr/bin/html-desktop-shell` binary.
 - `packaging/niri-spawn-html-desktop-shell.kdl`: niri startup snippet for an installed `html-desktop-shell` command.
 - `packaging/html-desktop-shell.default.toml`: installed default config example for `/usr/share/doc/html-desktop-shell/`.
-- `packaging/PKGBUILD`: Arch package recipe that installs the binary to `/usr/bin/html-desktop-shell`, web assets to `/usr/share/html-desktop-shell/web`, license files, and doc examples.
+- `packaging/PKGBUILD`: Arch package recipe that builds the frontend, installs the binary to `/usr/bin/html-desktop-shell`, installs generated web assets to `/usr/share/html-desktop-shell/web`, and installs license files and doc examples.
 
-
-Packaging verification commands executed for the current packaging layout:
+Packaging and build verification commands for this layout:
 
 ```bash
+cd web
+bun install
+bun run typecheck
+bun test
+bun run build
+cd ..
+cargo fmt
 cargo test
 cargo build --release --locked
 (cd packaging && makepkg --printsrcinfo)
 (cd packaging && makepkg --verifysource)
-HTML_DESKTOP_SHELL_BIN=./target/release/html-desktop-shell scripts/smoke-current-niri.sh
+HTML_DESKTOP_SHELL_BIN=./target/release/html-desktop-shell HTML_DESKTOP_SHELL_WEB_DIR="$PWD/web-dist" scripts/smoke-current-niri.sh
 ```
 
 The repository also includes `scripts/smoke-current-niri.sh` for the current niri session. It starts the binary, waits, prints `niri msg -j layers`, and terminates the process. It does not switch VTs, create VMs, install packages, enable services, or modify user services.
@@ -165,6 +206,10 @@ If another top-layer panel is already running, such as `dms:bar`/dankbar, niri m
 
 ```bash
 cd ~/coding/RustroverProjects/html-desktop-shell
+cd web
+bun install
+bun run build
+cd ..
 cargo build
 ./target/debug/html-desktop-shell --config ./test/panel-default.toml
 ```
@@ -178,7 +223,7 @@ niri msg -j layers
 Or run the local smoke helper after building:
 
 ```bash
-scripts/smoke-current-niri.sh
+HTML_DESKTOP_SHELL_BIN=./target/debug/html-desktop-shell HTML_DESKTOP_SHELL_WEB_DIR="$PWD/web-dist" scripts/smoke-current-niri.sh
 ```
 
 Expected observable result:
@@ -195,16 +240,16 @@ Expected observable result:
 
 The only WebKit native message handler is `shell`. Browser code sends versioned JSON requests and receives JSON response envelopes. Supported methods are:
 
-- `getHostInfo`: returns shell name, `wayland-layer-shell` backend, and bridge version `1`.
+- `getHostInfo`: returns shell name, `wayland-layer-shell` backend, bridge version `2`, and panel context `{ "index": <number>, "output": <string|null> }`.
 - `getCapabilities`: returns the supported method list.
-- `getState`: returns provider snapshots for clock, host, and optional niri state.
-- `niriFocusWorkspace`: accepts `{ "workspaceId": <positive integer> }`, verifies the workspace index exists in the most recent `getState` niri workspace snapshot, then runs only `niri msg action focus-workspace <workspaceId>`.
+- `getState`: returns provider snapshots for clock, host, niri, battery, and network state.
+- `niriFocusWorkspace`: accepts `{ "workspaceId": <positive integer> }`, verifies the workspace id exists in the most recent `getState` niri workspace snapshot, then runs only `niri msg action focus-workspace <workspaceId>`.
 
 Unknown or malformed requests return structured errors. Workspace action failures render a short panel error and do not stop polling. The bridge intentionally does not expose filesystem, process, network, DBus, clipboard, screenshot, notification, session-control, generic eval, generic command execution, or generic niri action access.
 
 ## Provider state
 
-The web UI polls `getState` once per second. The clock now comes from the native `ClockProvider`; the browser no longer uses its own `Date` clock.
+The official sample polls `getState` once per second through `@html-desktop-shell/shell-api`. The clock comes from the native `ClockProvider`; the browser does not synthesize its own clock for provider state.
 
 State providers:
 
@@ -216,7 +261,7 @@ State providers:
 
 The niri provider intentionally uses the installed `niri msg` command for this phase. Each niri part reports its own `{"available":false,"reason":"..."}` state on command or schema failure, so malformed niri output does not prevent panel startup. This is simple and source-compatible with the current system, but it is a polling diagnostic path, not a low-latency IPC subscription.
 
-Each panel URI includes `panelOutput=<connector>` from `GdkMonitor::connector()`. The browser filters workspace buttons to that output, so a panel does not expose workspace buttons for another monitor.
+`getHostInfo().panel.output` comes from `GdkMonitor::connector()`. The official sample filters workspace buttons to that output, so a panel does not expose workspace buttons for another monitor. Rust does not append panel or widget query parameters to the asset URI.
 
 ## Process diagnostics
 
