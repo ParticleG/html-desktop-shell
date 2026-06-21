@@ -3,12 +3,7 @@ use std::{cell::RefCell, rc::Rc};
 use glib::prelude::{CastNone, ObjectExt};
 use gtk4::{gio::prelude::ListModelExt, prelude::*};
 
-use crate::{
-    assets,
-    config::{ShellConfig, WidgetLayout, WidgetName},
-    providers::ProviderRegistry,
-    shell_window,
-};
+use crate::{assets, config::ShellConfig, messages, providers::ProviderRegistry, shell_window};
 
 pub struct ShellHost {
     state: Rc<RefCell<ShellHostState>>,
@@ -116,20 +111,19 @@ fn panels_for_monitors(
             continue;
         };
 
-        let panel_uri = panel_uri(
-            uri.as_str(),
+        let panel_context = messages::PanelContext {
             index,
-            monitor.connector().as_deref(),
-            &config.widgets,
-        );
+            output: monitor.connector().map(|connector| connector.to_string()),
+        };
 
         panels.push(shell_window::shell_window_for_monitor(
             app,
             &monitor,
             index,
-            panel_uri.as_str(),
+            uri.as_str(),
             config,
             providers.clone(),
+            panel_context,
         )?);
     }
 
@@ -138,79 +132,4 @@ fn panels_for_monitors(
     }
 
     Ok(panels)
-}
-
-fn panel_uri(base_uri: &str, index: u32, output: Option<&str>, widgets: &WidgetLayout) -> String {
-    let mut uri = String::with_capacity(base_uri.len() + 160 + output.map(str::len).unwrap_or(0));
-    uri.push_str(base_uri);
-    uri.push_str("?panelIndex=");
-    uri.push_str(index.to_string().as_str());
-    if let Some(output) = output {
-        uri.push_str("&panelOutput=");
-        push_url_component(&mut uri, output);
-    }
-    push_widget_param(&mut uri, "widgetsLeft", &widgets.left);
-    push_widget_param(&mut uri, "widgetsCenter", &widgets.center);
-    push_widget_param(&mut uri, "widgetsRight", &widgets.right);
-    uri
-}
-
-fn push_widget_param(target: &mut String, name: &str, widgets: &[WidgetName]) {
-    target.push('&');
-    target.push_str(name);
-    target.push('=');
-    for (index, widget) in widgets.iter().enumerate() {
-        if index > 0 {
-            target.push(',');
-        }
-        push_url_component(target, widget.as_str());
-    }
-}
-
-fn push_url_component(target: &mut String, value: &str) {
-    const HEX: &[u8; 16] = b"0123456789ABCDEF";
-    for byte in value.bytes() {
-        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~') {
-            target.push(char::from(byte));
-        } else {
-            target.push('%');
-            target.push(char::from(HEX[(byte >> 4) as usize]));
-            target.push(char::from(HEX[(byte & 0x0f) as usize]));
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn default_widgets() -> WidgetLayout {
-        WidgetLayout::default()
-    }
-
-    #[test]
-    fn panel_uri_includes_panel_index_and_output() {
-        assert_eq!(
-            panel_uri(
-                "file:///tmp/web/index.html",
-                2,
-                Some("eDP-1"),
-                &default_widgets()
-            ),
-            "file:///tmp/web/index.html?panelIndex=2&panelOutput=eDP-1&widgetsLeft=app-name,workspaces,focused-window&widgetsCenter=clock&widgetsRight=battery,network,bridge-status"
-        );
-    }
-
-    #[test]
-    fn panel_uri_escapes_output_component() {
-        assert_eq!(
-            panel_uri(
-                "file:///tmp/web/index.html",
-                0,
-                Some("HDMI A/1"),
-                &default_widgets()
-            ),
-            "file:///tmp/web/index.html?panelIndex=0&panelOutput=HDMI%20A%2F1&widgetsLeft=app-name,workspaces,focused-window&widgetsCenter=clock&widgetsRight=battery,network,bridge-status"
-        );
-    }
 }

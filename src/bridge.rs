@@ -7,6 +7,7 @@ const HANDLER_NAME: &str = "shell";
 pub fn attach_bridge(
     web_view: &webkit6::WebView,
     providers: ProviderRegistry,
+    panel_context: messages::PanelContext,
 ) -> Result<(), &'static str> {
     let Some(manager) = web_view.user_content_manager() else {
         return Err("missing WebKit user content manager");
@@ -27,6 +28,7 @@ pub fn attach_bridge(
                 raw_request.as_str(),
                 || providers.snapshot(),
                 |workspace_id| providers.focus_workspace(workspace_id),
+                &panel_context,
             );
             let result = javascriptcore6::Value::new_string(&context, Some(response_json.as_str()));
             reply.return_value(&result);

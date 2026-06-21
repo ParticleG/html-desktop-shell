@@ -1,4 +1,4 @@
-pub const BRIDGE_VERSION: u32 = 1;
+pub const BRIDGE_VERSION: u32 = 2;
 const METHOD_GET_CAPABILITIES: &str = "getCapabilities";
 const METHOD_GET_HOST_INFO: &str = "getHostInfo";
 const METHOD_GET_STATE: &str = "getState";
@@ -12,6 +12,12 @@ const METHODS: &[&str] = &[
 
 pub fn capabilities() -> serde_json::Value {
     serde_json::json!({ "methods": METHODS })
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PanelContext {
+    pub index: u32,
+    pub output: Option<String>,
 }
 
 #[derive(serde::Deserialize)]
@@ -53,18 +59,28 @@ impl NativeMethodError {
     }
 }
 
-pub fn handle_native_request<S, A>(raw: &str, state_snapshot: S, focus_workspace: A) -> String
+pub fn handle_native_request<S, A>(
+    raw: &str,
+    state_snapshot: S,
+    focus_workspace: A,
+    panel_context: &PanelContext,
+) -> String
 where
     S: FnOnce() -> serde_json::Value,
     A: FnOnce(u64) -> Result<serde_json::Value, NativeMethodError>,
 {
     match serde_json::from_str::<NativeRequest>(raw) {
-        Ok(request) => handle_request(&request, state_snapshot, focus_workspace),
+        Ok(request) => handle_request(&request, state_snapshot, focus_workspace, panel_context),
         Err(_) => bad_request_response(raw),
     }
 }
 
-fn handle_request<S, A>(request: &NativeRequest, state_snapshot: S, focus_workspace: A) -> String
+fn handle_request<S, A>(
+    request: &NativeRequest,
+    state_snapshot: S,
+    focus_workspace: A,
+    panel_context: &PanelContext,
+) -> String
 where
     S: FnOnce() -> serde_json::Value,
     A: FnOnce(u64) -> Result<serde_json::Value, NativeMethodError>,
@@ -76,6 +92,10 @@ where
                 "shell": "html-desktop-shell",
                 "backend": "wayland-layer-shell",
                 "bridgeVersion": BRIDGE_VERSION,
+                "panel": {
+                    "index": panel_context.index,
+                    "output": panel_context.output.as_deref(),
+                },
             }),
         ),
         METHOD_GET_CAPABILITIES => ok_response(request.id.as_str(), capabilities()),
@@ -180,6 +200,13 @@ mod tests {
         })
     }
 
+    fn test_panel_context() -> PanelContext {
+        PanelContext {
+            index: 7,
+            output: Some("eDP-1".to_owned()),
+        }
+    }
+
     fn handle(raw: &str) -> serde_json::Value {
         handle_with_action(raw, |workspace_id| {
             Ok(serde_json::json!({ "workspaceId": workspace_id }))
@@ -190,7 +217,12 @@ mod tests {
     where
         F: FnOnce(u64) -> Result<serde_json::Value, NativeMethodError>,
     {
-        response_value(&handle_native_request(raw, test_state, focus_workspace))
+        response_value(&handle_native_request(
+            raw,
+            test_state,
+            focus_workspace,
+            &test_panel_context(),
+        ))
     }
 
     #[test]
@@ -213,6 +245,8 @@ mod tests {
         assert_eq!(response["result"]["shell"], "html-desktop-shell");
         assert_eq!(response["result"]["backend"], "wayland-layer-shell");
         assert_eq!(response["result"]["bridgeVersion"], BRIDGE_VERSION);
+        assert_eq!(response["result"]["panel"]["index"], 7);
+        assert_eq!(response["result"]["panel"]["output"], "eDP-1");
         assert!(response.get("error").is_none());
     }
 
