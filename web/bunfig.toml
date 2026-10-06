@@ -1,0 +1,2 @@
+[test]
+preload = ["bun-plugin-vue3", "./src/test-setup.ts"]

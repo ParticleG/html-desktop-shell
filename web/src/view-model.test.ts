@@ -3,12 +3,13 @@ import type { ShellState } from "@html-desktop-shell/shell-api";
 
 import {
   batteryText,
-  bridgeStatusText,
   focusedWindowText,
   networkText,
   visibleWorkspaces,
   workspaceLabel,
 } from "./view-model";
+
+import { workspaceIndexForFocus } from "./widgets/types";
 
 describe("visibleWorkspaces", () => {
   const state: ShellState = {
@@ -42,13 +43,34 @@ describe("workspaceLabel", () => {
   });
 });
 
+describe("workspaceIndexForFocus", () => {
+  test("selects workspace index instead of the mismatched workspace id", () => {
+    expect(workspaceIndexForFocus({ id: 41, index: 2 })).toBe(2);
+  });
+});
+
 describe("focusedWindowText", () => {
-  test("formats focused window states", () => {
-    expect(focusedWindowText({ available: true, window: { appId: "Terminal", title: "cargo test" } })).toBe(
-      "Terminal — cargo test",
+  const focusedWindows = {
+    available: true,
+    items: [
+      { output: "DP-2", window: { appId: "Terminal", title: "DP-2 shell" } },
+      { output: "DP-3", window: { appId: "Browser", title: "DP-3 docs" } },
+      { output: "HDMI-A-1", window: null },
+    ],
+  };
+
+  test("formats the focused window for the surface output", () => {
+    expect(focusedWindowText(focusedWindows, "DP-2")).toBe("Terminal — DP-2 shell");
+    expect(focusedWindowText(focusedWindows, "DP-3")).toBe("Browser — DP-3 docs");
+  });
+
+  test("distinguishes no focused window from an unavailable provider", () => {
+    expect(focusedWindowText(focusedWindows, "HDMI-A-1")).toBe("no focused window");
+    expect(focusedWindowText(focusedWindows, "DP-4")).toBe("no focused window");
+    expect(focusedWindowText(focusedWindows, null)).toBe("no focused window");
+    expect(focusedWindowText({ available: false, reason: "niri unavailable" }, "DP-2")).toBe(
+      "window: unavailable",
     );
-    expect(focusedWindowText({ available: true, window: null })).toBe("no focused window");
-    expect(focusedWindowText({ available: false, reason: "niri unavailable" })).toBe("window: unavailable");
   });
 });
 
@@ -65,16 +87,5 @@ describe("networkText", () => {
       "net: wired up · wifi down",
     );
     expect(networkText({ available: false, reason: "no network" })).toBe("net: unavailable");
-  });
-});
-
-describe("bridgeStatusText", () => {
-  test("includes backend, monitor count, and focused output", () => {
-    expect(
-      bridgeStatusText({
-        host: { backend: "wayland-layer-shell", monitorCount: 2, bridgeVersion: 2 },
-        niri: { focusedOutput: { available: true, name: "eDP-1" } },
-      }),
-    ).toBe("bridge: wayland-layer-shell · monitors: 2 · niri: eDP-1");
   });
 });

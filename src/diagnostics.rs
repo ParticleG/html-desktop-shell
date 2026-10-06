@@ -44,8 +44,8 @@ fn run_check() -> Result<(), String> {
     }
     println!("layer_shell_supported = true");
 
-    let web_index = assets::web_index_path()?;
-    println!("web_index = {}", web_index.display());
+    let web_assets = assets::web_assets()?;
+    println!("web_index = {}", web_assets.index().display());
 
     let display =
         gtk4::gdk::Display::default().ok_or_else(|| "missing default GDK display".to_owned())?;

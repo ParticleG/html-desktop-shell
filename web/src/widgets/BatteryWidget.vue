@@ -1,5 +1,5 @@
 <template>
-  <Tag v-if="text" id="battery-status" class="battery-status panel-tag" :title="title">
+  <Tag v-if="text" id="battery-status" class="battery-status surface-tag" :title="title">
     <BatteryCharging v-if="isCharging" class="widget-icon" :size="14" aria-hidden="true" />
     <Battery v-else class="widget-icon" :size="14" aria-hidden="true" />
     <span>{{ text }}</span>

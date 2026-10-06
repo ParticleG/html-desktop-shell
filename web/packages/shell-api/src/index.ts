@@ -1,19 +1,171 @@
 let nextRequestId = 1;
 
-export interface HostInfo {
-  shell: "html-desktop-shell";
-  backend: "wayland-layer-shell";
-  bridgeVersion: 2;
-  panel: PanelContext;
-}
+export type SurfaceContext =
+  | BarSurfaceContext
+  | QuickPanelSurfaceContext
+  | WorkspaceHudSurfaceContext
+  | DiagnosticsDialogSurfaceContext;
 
-export interface PanelContext {
-  index: number;
+export interface BarSurfaceContext {
+  kind: "bar";
+  monitorIndex: number;
   output: string | null;
 }
 
+export interface QuickPanelSurfaceContext {
+  kind: "quickPanel";
+  monitorIndex: number;
+  output: string | null;
+}
+
+export interface WorkspaceHudSurfaceContext {
+  kind: "workspaceHud";
+  monitorIndex: number;
+  output: string | null;
+  workspaceIndex: number;
+}
+
+export interface DiagnosticsDialogSurfaceContext {
+  kind: "diagnosticsDialog";
+  monitorIndex: number;
+  output: string | null;
+}
+
+export interface HostInfo {
+  shell: "html-desktop-shell";
+  backend: "wayland-layer-shell";
+  bridgeVersion: 4;
+  surface: SurfaceContext;
+}
+
+export type ShellMethod =
+  | "getHostInfo"
+  | "getCapabilities"
+  | "getState"
+  | "niriFocusWorkspace"
+  | "setQuickPanelOpen"
+  | "setDiagnosticsDialogOpen";
+
 export interface Capabilities {
-  methods: string[];
+  methods: ShellMethod[];
+}
+
+const SHELL_METHODS: Record<ShellMethod, true> = {
+  getHostInfo: true,
+  getCapabilities: true,
+  getState: true,
+  niriFocusWorkspace: true,
+  setQuickPanelOpen: true,
+  setDiagnosticsDialogOpen: true,
+};
+
+const U32_MAX = 0xffff_ffff;
+
+export function validateHostInfo(value: unknown): HostInfo {
+  const hostInfo = requireExactObject(value, ["shell", "backend", "bridgeVersion", "surface"], "HostInfo");
+  if (hostInfo.shell !== "html-desktop-shell") {
+    throw invalidResult('HostInfo.shell must equal "html-desktop-shell"');
+  }
+  if (hostInfo.backend !== "wayland-layer-shell") {
+    throw invalidResult('HostInfo.backend must equal "wayland-layer-shell"');
+  }
+  if (hostInfo.bridgeVersion !== 4) {
+    throw invalidResult("HostInfo.bridgeVersion must equal 4");
+  }
+
+  return {
+    shell: hostInfo.shell,
+    backend: hostInfo.backend,
+    bridgeVersion: hostInfo.bridgeVersion,
+    surface: validateSurfaceContext(hostInfo.surface),
+  };
+}
+
+export function validateSurfaceContext(value: unknown): SurfaceContext {
+  const surface = requireObject(value, "HostInfo.surface");
+  switch (surface.kind) {
+    case "bar":
+    case "quickPanel":
+    case "diagnosticsDialog": {
+      requireExactKeys(surface, ["kind", "monitorIndex", "output"], `HostInfo.surface (${surface.kind})`);
+      const shared = validateSurfaceFields(surface);
+      return { kind: surface.kind, ...shared };
+    }
+    case "workspaceHud": {
+      requireExactKeys(
+        surface,
+        ["kind", "monitorIndex", "output", "workspaceIndex"],
+        "HostInfo.surface (workspaceHud)",
+      );
+      const shared = validateSurfaceFields(surface);
+      if (!Number.isSafeInteger(surface.workspaceIndex) || (surface.workspaceIndex as number) <= 0) {
+        throw invalidResult("HostInfo.surface.workspaceIndex must be a positive integer");
+      }
+      return { kind: "workspaceHud", ...shared, workspaceIndex: surface.workspaceIndex as number };
+    }
+    default:
+      throw invalidResult(`HostInfo.surface.kind is unsupported: ${JSON.stringify(surface.kind)}`);
+  }
+}
+
+export function validateCapabilities(value: unknown): Capabilities {
+  const capabilities = requireExactObject(value, ["methods"], "Capabilities");
+  if (!Array.isArray(capabilities.methods)) {
+    throw invalidResult("Capabilities.methods must be an array");
+  }
+  if (
+    !capabilities.methods.every(
+      (method) => typeof method === "string" && Object.hasOwn(SHELL_METHODS, method),
+    )
+  ) {
+    throw invalidResult("Capabilities.methods contains an unsupported method");
+  }
+  return { methods: capabilities.methods as ShellMethod[] };
+}
+
+function validateSurfaceFields(surface: Record<string, unknown>): {
+  monitorIndex: number;
+  output: string | null;
+} {
+  if (
+    !Number.isInteger(surface.monitorIndex)
+    || (surface.monitorIndex as number) < 0
+    || (surface.monitorIndex as number) > U32_MAX
+  ) {
+    throw invalidResult("HostInfo.surface.monitorIndex must be a nonnegative 32-bit integer");
+  }
+  if (surface.output !== null && typeof surface.output !== "string") {
+    throw invalidResult("HostInfo.surface.output must be a string or null");
+  }
+  return { monitorIndex: surface.monitorIndex as number, output: surface.output as string | null };
+}
+
+function requireExactObject(
+  value: unknown,
+  keys: readonly string[],
+  label: string,
+): Record<string, unknown> {
+  const object = requireObject(value, label);
+  requireExactKeys(object, keys, label);
+  return object;
+}
+
+function requireObject(value: unknown, label: string): Record<string, unknown> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw invalidResult(`${label} must be an object`);
+  }
+  return value as Record<string, unknown>;
+}
+
+function requireExactKeys(object: Record<string, unknown>, keys: readonly string[], label: string): void {
+  const actualKeys = Object.keys(object);
+  if (actualKeys.length !== keys.length || !keys.every((key) => Object.hasOwn(object, key))) {
+    throw invalidResult(`${label} has an invalid shape`);
+  }
+}
+
+function invalidResult(message: string): TypeError {
+  return new TypeError(`invalid native bridge result: ${message}`);
 }
 
 export interface ShellState {
@@ -29,7 +181,7 @@ export interface NiriState {
   reason?: string;
   focusedOutput?: NiriFocusedOutputState;
   workspaces?: NiriWorkspacesState;
-  focusedWindow?: NiriFocusedWindowState;
+  focusedWindows?: NiriFocusedWindowsState;
 }
 
 export interface NiriFocusedOutputState {
@@ -53,10 +205,15 @@ export interface NiriWorkspace {
   isFocused?: boolean;
 }
 
-export interface NiriFocusedWindowState {
-  available?: boolean;
-  window?: FocusedWindow | null;
+export interface NiriFocusedWindowsState {
+  available: boolean;
+  items?: NiriFocusedWindowItem[];
   reason?: string;
+}
+
+export interface NiriFocusedWindowItem {
+  output: string;
+  window: FocusedWindow | null;
 }
 
 export interface FocusedWindow {
@@ -110,6 +267,16 @@ export interface NativeError {
   message?: string;
 }
 
+export class NativeBridgeError extends Error {
+  readonly code: string | undefined;
+
+  constructor(error: NativeError | undefined) {
+    super(error?.message || "native bridge request failed");
+    this.name = "NativeBridgeError";
+    this.code = error?.code;
+  }
+}
+
 interface NativeRequestPayload {
   id: string;
   method: string;
@@ -140,23 +307,31 @@ export async function request<T = unknown>(method: string, params?: unknown): Pr
   const raw = await handler.postMessage({ id, method, params: params ?? {} });
   const response = JSON.parse(raw) as NativeResponse<T>;
   if (response.ok === false) {
-    throw new Error(response.error?.message || "native bridge request failed");
+    throw new NativeBridgeError(response.error);
   }
   return response.result as T;
 }
 
-export function getHostInfo(): Promise<HostInfo> {
-  return request("getHostInfo");
+export async function getHostInfo(): Promise<HostInfo> {
+  return validateHostInfo(await request<unknown>("getHostInfo"));
 }
 
-export function getCapabilities(): Promise<Capabilities> {
-  return request("getCapabilities");
+export async function getCapabilities(): Promise<Capabilities> {
+  return validateCapabilities(await request<unknown>("getCapabilities"));
 }
 
 export function getState(): Promise<ShellState> {
   return request("getState");
 }
 
-export function focusWorkspace(workspaceId: number): Promise<{ workspaceId: number }> {
-  return request("niriFocusWorkspace", { workspaceId });
+export function focusWorkspace(workspaceIndex: number): Promise<{ workspaceIndex: number }> {
+  return request("niriFocusWorkspace", { workspaceIndex });
+}
+
+export function setQuickPanelOpen(open: boolean): Promise<{ open: boolean }> {
+  return request("setQuickPanelOpen", { open });
+}
+
+export function setDiagnosticsDialogOpen(open: boolean): Promise<{ open: boolean }> {
+  return request("setDiagnosticsDialogOpen", { open });
 }

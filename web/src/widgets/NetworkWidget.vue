@@ -1,5 +1,5 @@
 <template>
-  <Tag id="network-status" class="network-status panel-tag" :title="title">
+  <Tag id="network-status" class="network-status surface-tag" :title="title">
     <Wifi v-if="hasNetworkUp" class="widget-icon" :size="14" aria-hidden="true" />
     <WifiOff v-else class="widget-icon" :size="14" aria-hidden="true" />
     <span>{{ text }}</span>

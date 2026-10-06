@@ -5,7 +5,10 @@ mod diagnostics;
 mod messages;
 mod providers;
 mod shell_host;
-mod shell_window;
+mod surface;
+mod surface_manager;
+mod surface_window;
+mod web_security;
 
 use crate::shell_host::ShellHost;
 use gtk4::prelude::*;
@@ -48,5 +51,19 @@ fn main() {
         },
     );
 
+    let shutdown_signals = [libc::SIGINT, libc::SIGTERM].map(|signal| {
+        let app = app.downgrade();
+        glib_unix::unix_signal_add_local(signal, move || {
+            if let Some(app) = app.upgrade() {
+                app.quit();
+            }
+            glib::ControlFlow::Continue
+        })
+    });
+
     app.run_with_args(&loaded_config.app_args);
+    for source in shutdown_signals {
+        source.remove();
+    }
+    drop(shell_host.borrow_mut().take());
 }

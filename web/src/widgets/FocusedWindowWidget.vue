@@ -13,5 +13,7 @@ import { focusedWindowText } from "../view-model";
 import type { WidgetProps } from "./types";
 
 const props = defineProps<WidgetProps>();
-const text = computed(() => focusedWindowText(props.state?.niri?.focusedWindow));
+const text = computed(() =>
+  focusedWindowText(props.state?.niri?.focusedWindows, props.hostInfo?.surface.output)
+);
 </script>

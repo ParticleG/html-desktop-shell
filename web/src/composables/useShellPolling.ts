@@ -1,26 +1,29 @@
-import { useIntervalFn } from "@vueuse/core";
 import { onMounted, onUnmounted } from "vue";
 
 import { useShellStore } from "../stores/shell";
 
+const POLL_INTERVAL_MS = 1000;
+
 export function useShellPolling(): void {
   const shell = useShellStore();
-  const { pause, resume } = useIntervalFn(
-    () => {
-      void shell.refreshState();
-    },
-    1000,
-    { immediate: false },
-  );
+  let disposed = false;
+  let timer: number | undefined;
 
-  onMounted(async () => {
-    pause();
-    await shell.loadHostInfo();
+  async function poll(): Promise<void> {
     await shell.refreshState();
-    resume();
+    if (!disposed) {
+      timer = window.setTimeout(() => {
+        void poll();
+      }, POLL_INTERVAL_MS);
+    }
+  }
+
+  onMounted(() => {
+    void poll();
   });
 
   onUnmounted(() => {
-    pause();
+    disposed = true;
+    clearTimeout(timer);
   });
 }

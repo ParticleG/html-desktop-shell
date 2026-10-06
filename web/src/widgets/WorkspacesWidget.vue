@@ -30,19 +30,20 @@ import { useI18n } from "vue-i18n";
 import type { NiriWorkspace } from "@html-desktop-shell/shell-api";
 
 import { visibleWorkspaces, workspaceLabel, workspaceTitle } from "../view-model";
+import { workspaceIndexForFocus } from "./types";
 import type { WidgetProps } from "./types";
 
 const props = defineProps<WidgetProps>();
 const { t } = useI18n();
-const workspaces = computed(() => visibleWorkspaces(props.state, props.hostInfo?.panel.output));
+const workspaces = computed(() => visibleWorkspaces(props.state, props.hostInfo?.surface.output));
 const workspacesAvailable = computed(() => props.state?.niri?.workspaces?.available === true);
 
 function focusWorkspaceFromEvent(workspace: NiriWorkspace): void {
-  const workspaceId = workspace.id;
-  if (typeof workspaceId !== "number" || !Number.isInteger(workspaceId) || workspaceId <= 0) {
+  const workspaceIndex = workspaceIndexForFocus(workspace);
+  if (workspaceIndex === null) {
     return;
   }
-  void props.focusWorkspaceFromButton(workspaceId);
+  void props.focusWorkspaceFromButton(workspaceIndex);
 }
 
 function handleWorkspacePointerDown(event: PointerEvent, workspace: NiriWorkspace): void {

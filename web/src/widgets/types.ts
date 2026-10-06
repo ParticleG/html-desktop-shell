@@ -1,4 +1,4 @@
-import type { HostInfo, ShellState } from "@html-desktop-shell/shell-api";
+import type { HostInfo, NiriWorkspace, ShellState } from "@html-desktop-shell/shell-api";
 
 export interface WidgetProps {
   state: ShellState | null;
@@ -6,5 +6,12 @@ export interface WidgetProps {
   bridgeError: string;
   actionError: string;
   actionErrorDetail: string;
-  focusWorkspaceFromButton: (workspaceId: number) => Promise<void>;
+  focusWorkspaceFromButton: (workspaceIndex: number) => Promise<void>;
+}
+
+export function workspaceIndexForFocus(workspace: NiriWorkspace): number | null {
+  const workspaceIndex = workspace.index;
+  return typeof workspaceIndex === "number" && Number.isInteger(workspaceIndex) && workspaceIndex > 0
+    ? workspaceIndex
+    : null;
 }

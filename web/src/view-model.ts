@@ -1,22 +1,22 @@
 import type {
   BatteryState,
   NetworkState,
-  NiriFocusedWindowState,
+  NiriFocusedWindowsState,
   NiriWorkspace,
   ShellState,
 } from "@html-desktop-shell/shell-api";
 
 export function visibleWorkspaces(
   state: ShellState | null | undefined,
-  panelOutput: string | null | undefined,
+  surfaceOutput: string | null | undefined,
 ): NiriWorkspace[] {
   const items = state?.niri?.workspaces?.items;
   if (!Array.isArray(items)) {
     return [];
   }
 
-  if (typeof panelOutput === "string" && panelOutput.length > 0) {
-    return items.filter((workspace) => workspace.output === panelOutput);
+  if (typeof surfaceOutput === "string" && surfaceOutput.length > 0) {
+    return items.filter((workspace) => workspace.output === surfaceOutput);
   }
   return items;
 }
@@ -42,12 +42,18 @@ export function workspaceTitle(workspace: NiriWorkspace): string {
   return `workspace ${workspaceLabel(workspace)} on ${output}`;
 }
 
-export function focusedWindowText(windowState: NiriFocusedWindowState | undefined): string {
-  if (!windowState?.available) {
+export function focusedWindowText(
+  windowsState: NiriFocusedWindowsState | undefined,
+  surfaceOutput: string | null | undefined,
+): string {
+  if (!windowsState?.available) {
     return "window: unavailable";
   }
 
-  const windowInfo = windowState.window;
+  const item = Array.isArray(windowsState.items)
+    ? windowsState.items.find(({ output }) => output === surfaceOutput)
+    : undefined;
+  const windowInfo = item?.window;
   if (!windowInfo) {
     return "no focused window";
   }
@@ -97,17 +103,19 @@ export function networkText(network: NetworkState | undefined): string {
   return `net: ${parts.length > 0 ? parts.join(" · ") : "unknown"}`;
 }
 
-export function bridgeStatusText(state: ShellState | null | undefined): string {
+export function bridgeStatusText(
+  state: ShellState | null | undefined,
+  surfaceOutput: string | null | undefined,
+): string {
   const backend = state?.host?.backend || "unavailable";
   const monitorCount = state?.host?.monitorCount;
-  const focusedOutput = state?.niri?.focusedOutput;
   const parts = [`bridge: ${backend}`];
 
   if (typeof monitorCount === "number" && Number.isInteger(monitorCount)) {
     parts.push(`monitors: ${monitorCount}`);
   }
-  if (focusedOutput?.available && focusedOutput.name) {
-    parts.push(`niri: ${focusedOutput.name}`);
+  if (state?.niri?.available && surfaceOutput) {
+    parts.push(`niri: ${surfaceOutput}`);
   } else if (state?.niri && !state.niri.available) {
     parts.push("niri: unavailable");
   }

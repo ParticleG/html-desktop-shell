@@ -17,48 +17,51 @@ body {
   color: #f5f7fb;
 }
 
-#shell-bar {
-  align-items: center;
-  background: rgba(12, 14, 20, 0.82);
+.surface-root {
   box-sizing: border-box;
-  display: flex;
-  gap: 16px;
   height: 100vh;
-  justify-content: space-between;
-  padding: 0 12px;
   width: 100vw;
 }
 
-#left-widgets,
-#center-widgets,
-#right-widgets,
-#app-name,
-#clock,
-#workspace-status,
-#focused-window,
-#battery-status,
-#network-status,
-#action-status,
-#bridge-status {
+.surface-bar {
+  align-items: center;
+  background: rgba(12, 14, 20, 0.82);
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  padding: 0 12px;
+}
+
+.surface-bar #left-widgets,
+.surface-bar #center-widgets,
+.surface-bar #right-widgets,
+.surface-bar #app-name,
+.surface-bar #clock,
+.surface-bar #workspace-status,
+.surface-bar #focused-window,
+.surface-bar #battery-status,
+.surface-bar #network-status,
+.surface-bar #action-status,
+.surface-bar #bridge-status {
   line-height: 1;
   white-space: nowrap;
 }
 
-#left-widgets,
-#center-widgets,
-#right-widgets,
+.surface-bar #left-widgets,
+.surface-bar #center-widgets,
+.surface-bar #right-widgets,
 .widget-with-icon,
 .workspace-status,
-.panel-tag {
+.surface-tag {
   align-items: center;
   display: flex;
 }
 
-#left-widgets {
+.surface-bar #left-widgets {
   flex: 0 0 auto;
 }
 
-#center-widgets {
+.surface-bar #center-widgets {
   font-variant-numeric: tabular-nums;
   left: 50%;
   position: absolute;
@@ -66,7 +69,7 @@ body {
   transform: translate(-50%, -50%);
 }
 
-#right-widgets {
+.surface-bar #right-widgets {
   color: #a7f3d0;
   flex: 1 1 auto;
   gap: 10px;
@@ -86,7 +89,7 @@ body {
 }
 
 .widget-with-icon,
-.panel-tag {
+.surface-tag {
   gap: 4px;
 }
 
@@ -103,7 +106,7 @@ body {
   color: #d1fae5;
   cursor: pointer;
   font: inherit;
-  height: 20px;
+  height: 24px;
   line-height: 1;
   min-width: 1.5em;
   padding: 3px 6px;
@@ -115,7 +118,8 @@ body {
 }
 
 .workspace-item:focus-visible,
-.workspace-item.p-button:focus-visible {
+.workspace-item.p-button:focus-visible,
+.surface-action:focus-visible {
   outline: 2px solid #f5f7fb;
   outline-offset: 2px;
 }
@@ -134,7 +138,7 @@ body {
   font-weight: 700;
 }
 
-#focused-window {
+.surface-bar #focused-window {
   color: #f5f7fb;
   flex: 1 1 18ch;
   max-width: 38vw;
@@ -143,7 +147,7 @@ body {
   text-overflow: ellipsis;
 }
 
-#focused-window span {
+.surface-bar #focused-window span {
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -151,20 +155,19 @@ body {
 #battery-status,
 #network-status {
   color: #d1fae5;
-  flex: 0 0 auto;
 }
 
-#action-status {
+#action-status,
+.surface-error {
   color: #fca5a5;
-  flex: 0 0 auto;
 }
 
-#bridge-status {
+#bridge-status,
+.surface-unavailable {
   color: #94a3b8;
-  flex: 0 0 auto;
 }
 
-.panel-tag.p-tag {
+.surface-tag.p-tag {
   background: transparent;
   border-radius: 0;
   color: inherit;
@@ -181,4 +184,121 @@ body {
 
 .gutter-x-md > * {
   margin-left: 16px;
+}
+
+.surface-action.p-button {
+  color: #d1fae5;
+  font: inherit;
+  white-space: nowrap;
+}
+
+.surface-quick-panel,
+.surface-diagnostics {
+  background: rgba(12, 14, 20, 0.96);
+  border: 1px solid rgba(167, 243, 208, 0.22);
+  border-radius: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  overflow: auto;
+  padding: 18px;
+}
+
+.surface-header,
+.surface-footer {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.surface-header h1,
+.diagnostics-section h2 {
+  margin: 0;
+}
+
+.surface-header h1 {
+  font-size: 1.2rem;
+}
+
+.quick-panel-section,
+.provider-summaries {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.surface-quick-panel #workspace-status {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.surface-quick-panel #focused-window {
+  align-items: center;
+  display: flex;
+  gap: 4px;
+}
+
+.surface-footer {
+  margin-top: auto;
+}
+
+.surface-workspace-hud {
+  align-items: center;
+  background: rgba(12, 14, 20, 0.9);
+  border: 1px solid rgba(167, 243, 208, 0.26);
+  border-radius: 18px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 20px;
+}
+
+.workspace-hud-label,
+.workspace-hud-output {
+  color: #a7f3d0;
+}
+
+.workspace-hud-index {
+  font-size: 3rem;
+  line-height: 1;
+}
+
+.surface-diagnostics {
+  gap: 20px;
+}
+
+.diagnostics-section {
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  padding-top: 12px;
+}
+
+.diagnostics-section h2 {
+  color: #a7f3d0;
+  font-size: 1rem;
+  margin-bottom: 8px;
+}
+
+.diagnostics-section dl {
+  display: grid;
+  gap: 6px 14px;
+  grid-template-columns: max-content 1fr;
+  margin: 0;
+}
+
+.diagnostics-section dd {
+  margin: 0;
+}
+
+.diagnostics-section ul {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.surface-loading {
+  align-items: center;
+  background: rgba(12, 14, 20, 0.96);
+  display: flex;
+  justify-content: center;
 }

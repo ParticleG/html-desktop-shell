@@ -8,13 +8,13 @@ export type WidgetKey =
   | "actionStatus"
   | "bridgeStatus";
 
-export interface PanelLayout {
+export interface BarLayout {
   left: WidgetKey[];
   center: WidgetKey[];
   right: WidgetKey[];
 }
 
-export const panelLayout: PanelLayout = {
+export const barLayout: BarLayout = {
   left: ["appName", "workspaces", "focusedWindow"],
   center: ["clock"],
   right: ["battery", "network", "actionStatus", "bridgeStatus"],

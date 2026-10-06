@@ -9,5 +9,7 @@ import { bridgeStatusText } from "../view-model";
 import type { WidgetProps } from "./types";
 
 const props = defineProps<WidgetProps>();
-const text = computed(() => props.bridgeError || bridgeStatusText(props.state));
+const text = computed(() =>
+  props.bridgeError || bridgeStatusText(props.state, props.hostInfo?.surface.output)
+);
 </script>

@@ -1,12 +1,19 @@
 let nextRequestId = 1;
 
+export class NativeBridgeError extends Error {
+  constructor(error) {
+    super(error?.message || "native bridge request failed");
+    this.name = "NativeBridgeError";
+    this.code = error?.code;
+  }
+}
+
 export async function request(method, params = {}) {
   const id = String(nextRequestId++);
   const raw = await window.webkit.messageHandlers.shell.postMessage({ id, method, params });
   const response = JSON.parse(raw);
   if (!response.ok) {
-    const message = response.error?.message || "native bridge request failed";
-    throw new Error(message);
+    throw new NativeBridgeError(response.error);
   }
   return response.result;
 }
@@ -23,6 +30,14 @@ export function getState() {
   return request("getState");
 }
 
-export function focusWorkspace(workspaceId) {
-  return request("niriFocusWorkspace", { workspaceId });
+export function focusWorkspace(workspaceIndex) {
+  return request("niriFocusWorkspace", { workspaceIndex });
+}
+
+export function setQuickPanelOpen(open) {
+  return request("setQuickPanelOpen", { open });
+}
+
+export function setDiagnosticsDialogOpen(open) {
+  return request("setDiagnosticsDialogOpen", { open });
 }

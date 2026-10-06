@@ -1,21 +1,18 @@
 use std::{cell::RefCell, rc::Rc};
 
-use glib::prelude::{CastNone, ObjectExt};
-use gtk4::{gio::prelude::ListModelExt, prelude::*};
+use glib::prelude::ObjectExt;
+use gtk4::prelude::*;
 
-use crate::{assets, config::ShellConfig, messages, providers::ProviderRegistry, shell_window};
+use crate::{
+    assets, config::ShellConfig, providers::ProviderRegistry, surface_manager::SurfaceManager,
+    web_security::TrustedWebContext,
+};
 
 pub struct ShellHost {
-    state: Rc<RefCell<ShellHostState>>,
+    manager: Rc<RefCell<SurfaceManager>>,
     monitors: gtk4::gio::ListModel,
     monitor_changed_handler: Option<glib::SignalHandlerId>,
-}
-
-struct ShellHostState {
-    app: gtk4::Application,
-    panels: Vec<gtk4::ApplicationWindow>,
-    config: ShellConfig,
-    providers: ProviderRegistry,
+    _application_hold: gtk4::gio::ApplicationHoldGuard,
 }
 
 impl ShellHost {
@@ -26,35 +23,32 @@ impl ShellHost {
 
         let display = gtk4::gdk::Display::default()
             .ok_or_else(|| "missing default GDK display".to_owned())?;
+        install_native_surface_style(&display);
         let monitors = display.monitors();
         let providers = ProviderRegistry::new(&monitors);
-        let panels = panels_for_monitors(app, &monitors, &config, &providers)?;
+        let web_context = TrustedWebContext::new(assets::web_assets()?)?;
+        let manager = SurfaceManager::new(app, &monitors, config, providers, web_context)?;
 
-        let state = Rc::new(RefCell::new(ShellHostState {
-            app: app.clone(),
-            panels,
-            config,
-            providers,
-        }));
-        let state_for_monitor_changes = Rc::clone(&state);
+        let weak_manager = Rc::downgrade(&manager);
         let monitor_changed_handler = monitors.connect_items_changed(move |monitors, _, _, _| {
-            if let Err(message) = state_for_monitor_changes
-                .borrow_mut()
-                .rebuild_panels(monitors)
-            {
+            let Some(manager) = weak_manager.upgrade() else {
+                return;
+            };
+            if let Err(message) = SurfaceManager::rebuild_for_monitors(&manager, monitors) {
                 eprintln!("{message}");
             }
         });
 
         Ok(Self {
-            state,
+            manager,
             monitors,
             monitor_changed_handler: Some(monitor_changed_handler),
+            _application_hold: app.hold(),
         })
     }
 
     pub fn present(&self) {
-        self.state.borrow().present();
+        SurfaceManager::present_bars(&self.manager);
     }
 }
 
@@ -63,73 +57,17 @@ impl Drop for ShellHost {
         if let Some(handler) = self.monitor_changed_handler.take() {
             self.monitors.disconnect(handler);
         }
+        SurfaceManager::shutdown(&self.manager);
     }
 }
 
-impl ShellHostState {
-    fn present(&self) {
-        for panel in &self.panels {
-            panel.present();
-        }
-    }
-
-    fn rebuild_panels(&mut self, monitors: &gtk4::gio::ListModel) -> Result<(), String> {
-        let new_panels = panels_for_monitors(&self.app, monitors, &self.config, &self.providers)?;
-
-        for panel in self.panels.drain(..) {
-            panel.close();
-        }
-        self.panels = new_panels;
-        self.present();
-
-        Ok(())
-    }
-}
-
-fn panels_for_monitors(
-    app: &gtk4::Application,
-    monitors: &gtk4::gio::ListModel,
-    config: &ShellConfig,
-    providers: &ProviderRegistry,
-) -> Result<Vec<gtk4::ApplicationWindow>, String> {
-    if monitors.n_items() == 0 {
-        return Err("no GDK monitors available".to_owned());
-    }
-
-    let html_path = assets::web_index_path()?;
-    let uri = glib::filename_to_uri(&html_path, None).map_err(|error| {
-        format!(
-            "failed to create file URI for {}: {error}",
-            html_path.display()
-        )
-    })?;
-
-    let mut panels = Vec::with_capacity(monitors.n_items() as usize);
-    for index in 0..monitors.n_items() {
-        let Some(monitor) = monitors.item(index).and_downcast::<gtk4::gdk::Monitor>() else {
-            eprintln!("skipping non-monitor GDK list item at index {index}");
-            continue;
-        };
-
-        let panel_context = messages::PanelContext {
-            index,
-            output: monitor.connector().map(|connector| connector.to_string()),
-        };
-
-        panels.push(shell_window::shell_window_for_monitor(
-            app,
-            &monitor,
-            index,
-            uri.as_str(),
-            config,
-            providers.clone(),
-            panel_context,
-        )?);
-    }
-
-    if panels.is_empty() {
-        return Err("no usable GDK monitors available".to_owned());
-    }
-
-    Ok(panels)
+fn install_native_surface_style(display: &gtk4::gdk::Display) {
+    let provider = gtk4::CssProvider::new();
+    provider
+        .load_from_data(".html-desktop-shell-native-surface { background-color: transparent; }");
+    gtk4::style_context_add_provider_for_display(
+        display,
+        &provider,
+        gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
+    );
 }
