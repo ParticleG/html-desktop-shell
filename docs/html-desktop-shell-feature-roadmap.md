@@ -1,265 +1,206 @@
 # HTML Desktop Shell Feature Roadmap
 
-## Current baseline
+## Audited baseline
 
-The previous foundation roadmap is complete. The project now has a stable Wayland layer-shell host with:
+The completed foundation and typed multi-surface delivery establish the current
+implementation:
 
-- one panel per active monitor at startup;
-- full panel rebuild when GDK monitor topology changes;
-- no X11, compositor-less TTY, Electron, or normal GTK window fallback;
-- runtime config from `--config`, XDG config, or built-in defaults;
-- versioned WebKit bridge with `getHostInfo`, `getCapabilities`, `getState`, and precise action methods;
-- native state providers for clock, host, niri output/workspace/window, battery, and network state;
-- framework-agnostic native bridge API plus official Vue 3 sample frontend under `web/`;
-- local production assets built to `web-dist/` and installed as web assets;
-- systemd user service, niri snippet, Arch `PKGBUILD`, and current-session smoke script;
-- diagnostic CLI flags and measured current-niri/KVM performance gates.
+- a Rust 2024, single-process GTK4/WebKitGTK Wayland layer-shell host;
+- one persistent typed Bar per GDK monitor plus independently secured Quick
+  Panel, Workspace HUD, and Diagnostics Dialog layer-shell surfaces;
+- a shared `ProviderRegistry` serving clock, host, niri, battery, and network
+  state;
+- deny-by-default Bridge v4 with six exact methods and a surface-scoped
+  capability matrix;
+- niri snapshots and compositor-confirmed workspace activations published by one
+  contained GIO event-stream collector with explicit unavailable/recovery state
+  and bounded reconnects;
+- native configuration limited to `panel_height`, `layer`, and
+  `keyboard_mode`, with closed native policy for transient geometry and input;
+- canonical six-tier lookup for local static frontend assets, served through a
+  read-only custom scheme with enforced navigation, origin, CSP, and per-view
+  bridge trust policy;
+- an official Vue 3/Vite/Bun frontend using Pinia, `SurfaceRoot`, per-view
+  polling, and eight compile-time Bar layout widgets;
+- a framework-independent Bridge v4 contract, with `examples/plain-html`
+  demonstrating a custom frontend.
 
-The remaining problem is product value: the current bar is still mostly a foundation/status strip. The next roadmap turns it into a useful desktop panel while preserving the native bridge and compositor boundaries.
+The previously measured 500 ms polling cache was retired on 2026-07-23 after reducer/lifecycle tests, fake-child recovery and shutdown checks, and a current-session niri interaction check. Historical polling measurements are not treated as current performance results.
 
 ## Invariants
 
-Every phase must keep these boundaries intact:
-
-- This app remains a Wayland `zwlr_layer_shell_v1` client, not a compositor.
-- No X11, raw TTY, normal-window, Electron, or DE/display-manager fallback.
-- Frontend build artifacts are local, reproducible through the Bun lockfile, and no remote runtime resources are loaded.
-- Native bridge remains deny-by-default.
-- No generic native bridge methods such as `runCommand`, `readFile`, `writeFile`, `dbusCall`, `httpRequest`, `eval`, or generic `niriAction`.
-- Any privileged action must have one exact method name, one exact JSON parameter schema, and one explicit UI caller.
-- Missing optional environment capabilities must degrade to explicit unavailable state, not prevent panel startup.
-- Current niri, tty2 no-DE niri, raw TTY boundary, and KVM smoke remain release gates when a phase changes runtime behavior.
-
-## Phase 8 — Read-only niri workspace and focused-window status
-
-### Goal
-
-Replace the generic right-side provider text with useful read-only session status:
-
-```text
-workspaces: 1 2 [3] 4 · Terminal — cargo test
-```
-
-This phase adds no native actions. It only exposes state that niri already reports.
-
-### Native changes
-
-1. Extend `NiriProvider` beyond `focused-output`.
-   - Continue using subprocesses for this phase:
-     ```bash
-     niri msg -j focused-output
-     niri msg -j workspaces
-     niri msg -j focused-window
-     ```
-   - Do not switch to `niri msg event-stream` yet.
-   - If any command fails or returns malformed JSON, keep the panel running and return structured unavailable/error state for that part.
+All future work must preserve these boundaries:
 
-2. Parse only the fields the UI needs.
-   - Add minimal Rust structs for niri JSON:
-     - workspace id/index/name/output;
-     - focused/active state;
-     - focused window title/app id;
-     - focused output name.
-   - Do not pass raw niri JSON through the bridge.
-   - Treat missing optional fields as absent; treat schema breaks as provider errors, not panics.
+- The host is Wayland `zwlr_layer_shell_v1` only. There is no X11, raw-TTY, compositor-less, Electron, or normal GTK window fallback.
+- The frontend policy remains local-only and reproducibly bundled. The host enforces canonical-root asset containment, rejects remote scripts, fonts, icons, and other runtime resources, and gates the bridge to the exact trusted entry document.
+- The bridge is deny-by-default. Every privileged operation has one exact method, one exact parameter schema, and an explicit UI caller.
+- Generic escape hatches such as command execution, filesystem access, arbitrary HTTP, DBus, evaluation, or generic niri actions are prohibited.
+- Custom frontends remain static asset directories using the framework-independent bridge contract.
+- Optional provider failures produce explicit unavailable state without preventing panel startup.
+- Native configuration remains limited to panel/window behavior; widget layout and presentation remain frontend-owned.
 
-3. Keep bridge surface unchanged.
-   - `getState` remains the only state method.
-   - `getCapabilities` does not change.
-   - No new bridge method is added in Phase 8.
+## Prioritized future work
 
-### Web changes
+### P0 — Correct the workspace ID/index contract (completed)
 
-1. Render dedicated right-side widgets.
-   - Workspaces with focused workspace highlighted.
-   - Focused window title/app id.
-   - Compact fallback when niri is unavailable.
+Status: completed on 2026-07-23. Native and frontend contract tests cover an ID/index mismatch fixture, and a current-session niri workspace-switch check passed.
 
-2. Keep the panel within the configured height.
-   - Use ellipsis for long titles.
-   - Keep horizontal full-width behavior.
-   - Avoid layout shifts when the title changes every second.
+The bridge, controller, shell API, and frontend now use `WorkspaceSnapshot.index` unambiguously as `workspaceIndex`; the distinct niri workspace ID is never substituted for the CLI workspace reference.
 
-### Tests
+Acceptance criteria:
 
-- Rust unit tests for parsing:
-  - valid `workspaces` JSON;
-  - valid `focused-window` JSON;
-  - empty focused-window state;
-  - malformed JSON/unexpected schema returns unavailable provider state.
-- Web smoke with mocked `getState`:
-  - focused workspace is visibly marked;
-  - focused window text renders;
-  - unavailable niri state renders without throwing.
+- One identifier is defined unambiguously across the niri snapshot, bridge schema, controller validation, command invocation, shell API types, and frontend caller.
+- The workspace button sends that identifier without conversion or substitution.
+- Controller validation checks the same snapshot field represented by the bridge parameter.
+- Native tests cover a snapshot where workspace ID and index differ, accepting the valid identifier and rejecting an unknown one.
+- Frontend and shell API tests assert the exact `niriFocusWorkspace` request payload for an ID/index mismatch fixture.
 
-### Manual verification
+### P1 — Restrict trusted WebView navigation and origin (completed)
 
-- Current niri:
-  - switching workspaces updates the highlighted workspace;
-  - switching windows updates the focused window text;
-  - moving focus between `eDP-1` and `DP-2` updates the focused output/workspace relationship.
-- tty2 no-DE niri:
-  - workspaces and focused window state render without DE services.
-- KVM:
-  - panel renders workspace/window state, or explicit unavailable state if no focused window exists.
+Status: completed on 2026-07-23. Rust policy tests pass; current-session niri checks passed for the official frontend, `examples/plain-html`, a blocked HTTP subresource probe, and bridge revocation after attempted remote navigation.
 
-## Phase 9 — Workspace interaction actions
+The privileged bridge is constrained to the canonical local frontend root without breaking supported local custom frontend paths.
 
-### Goal
+Acceptance criteria:
 
-Allow mouse interaction with workspace widgets after read-only state is stable.
+- The initial document is accepted only from the resolved local asset root selected by the existing six-tier lookup.
+- Top-level navigation, redirects, popups, and subresource origins outside the trusted local policy are rejected before they can access the bridge.
+- Bridge requests are processed only for a trusted document/origin, including after attempted navigation.
+- Tests cover the official bundled frontend and every supported local custom frontend root, plus rejected remote, sibling-file, traversal, redirect, and popup cases.
+- No network or fallback asset source is introduced.
 
-### Native bridge method
+### P1 — Move niri collection off the GTK main loop (completed)
 
-Add one exact action method:
+Status: completed on 2026-07-23. Rust tests and clippy pass; a fake malformed/partial stream recovered coherently on its third generation without a leaked child, a real niri interaction check passed, and lifecycle review found no blocker, high, or medium issue.
 
-```json
-{
-  "method": "niriFocusWorkspace",
-  "params": { "workspaceId": 3 }
-}
-```
+The shared provider now reads a coherent cache published by a contained GIO event-stream collector; no niri collection subprocess is synchronously awaited on the GTK main loop.
 
-Rules:
+Acceptance criteria:
 
-- `workspaceId` must be a positive integer.
-- The id must exist in the most recent workspace snapshot.
-- If niri is unavailable, return a structured error.
-- Only call:
-  ```bash
-  niri msg action focus-workspace <id>
-  ```
-- Do not add generic `niriAction`, `runCommand`, or command-string bridge methods.
+- Provider reads and refresh scheduling perform no synchronous niri subprocess wait on the GTK main thread.
+- A contained niri collector owns event-stream startup, snapshot updates, shutdown, and bounded reconnect behavior.
+- The bridge reads a coherent cached snapshot without waiting for niri IPC.
+- Compositor loss, malformed events, collector exit, restart, and application shutdown are tested without hangs, leaked children, stale writes after shutdown, or panics.
+- Unavailable and recovery transitions are explicit, while the shared provider contract remains unchanged.
+- The replacement is adopted only after lifecycle tests pass and an audited comparison justifies retiring the contained 500 ms polling cache.
 
-### Web changes
+### P2 — Strengthen interaction and smoke coverage (completed)
 
-- Workspace labels become buttons.
-- Keyboard focus and ARIA labels are correct.
-- Failed action returns a visible, short error state without breaking polling.
+Status: completed on 2026-07-23. Mounted Vue tests cover the real Pinia-to-bridge interaction path and polling lifecycle; the validator and helper tests cover success, mismatch, fatal input, deadline, early-exit, and process-group cleanup paths; a current-session two-output niri smoke and manual render/exclusive-zone gate passed.
 
-### Tests
+Acceptance criteria:
 
-- Rust tests for valid/invalid params.
-- Rust tests that unknown/missing workspace id is rejected.
-- Web mocked bridge test for click -> exact method/params.
+- Mounted frontend tests exercise workspace click and keyboard activation, exact bridge payloads, visible action failures, polling continuity, and unavailable state through rendered components rather than view-model-only assertions.
+- The smoke helper exits nonzero unless expected layer-shell namespace and per-monitor surface expectations are observed.
+- Smoke assertions distinguish missing, duplicate, and incorrectly named surfaces and print actionable diagnostics.
+- Documentation records smoke commands as release gates, not as claims that they currently pass.
 
-### Manual verification
+### P2 — Add product widgets or actions only through exact APIs (policy enforced)
 
-- Click each visible workspace and confirm niri switches focus.
-- Click invalid/unavailable state is not possible from UI.
-- Current niri/tty2/KVM smoke still pass.
+Status: policy enforced through the Bridge v4 delivery on 2026-08-02. The only
+new write methods are the exact typed surface operations
+`setQuickPanelOpen({ open })` and `setDiagnosticsDialogOpen({ open })`; unknown
+methods remain denied, and every future proposal remains subject to the
+criteria below.
 
-## Phase 10 — Basic system status widgets
+New product features are considered individually after the correctness and isolation work above.
 
-### Goal
+Acceptance criteria for any proposal:
 
-Add useful local system widgets without adding DBus/session-control dependencies.
+- The user-visible need, provider data, capability advertisement, exact bridge method and JSON schema, explicit caller, unavailable behavior, and authorization boundary are specified before implementation.
+- Read-only data extends a narrow provider snapshot where possible.
+- Each write action receives its own allowlisted method; generic command, DBus, filesystem, HTTP, or compositor-action methods are rejected.
+- Native contract tests and mounted caller tests cover allowed, malformed, unavailable, and denied behavior.
+- Adding or omitting the feature does not weaken local-assets-only loading or custom frontend support.
 
-Recommended order:
+### P3 — Add typed multi-surface shell surfaces (completed)
 
-1. Battery
-   - Read `/sys/class/power_supply`.
-   - Show percentage and charging/discharging state.
-   - Hide when no battery exists.
-   - No UPower/DBus in the first implementation.
+Status: completed on 2026-10-06, following the initial implementation delivery
+on 2026-08-02. Final release commands passed: frozen Bun install, web type-check,
+all 30 web tests (119 assertions), and Vite build; all 31 smoke-validator tests
+(94 assertions); `cargo fmt --check`, clippy with `-D warnings`, all 80 Rust
+tests, and the locked Rust build. The two-output persistent Bar smoke passed on
+DP-2 and DP-3.
 
-2. Network
-   - Read `/sys/class/net`.
-   - Show wired/wireless up/down summary.
-   - Do not use NetworkManager/DBus in the first implementation.
-
-3. CPU/memory diagnostic widget
-   - Optional compact local system status.
-   - Must be cheap and rate-limited.
-
-### Bridge
-
-- Prefer extending `getState` provider snapshots.
-- Do not add action methods.
-
-### Tests
-
-- Provider parsing tests using fixture directories under temp paths.
-- No tests depend on the host machine actually having a battery or specific NIC name.
-
-### Manual verification
-
-- Laptop with battery: percentage appears.
-- Desktop/KVM without battery: battery widget hides.
-- Network changes show up without crashing.
-
-## Phase 11 — Frontend-owned widget layout
-
-### Goal
-
-Keep widget placement, visibility, and styling owned by the frontend. Rust config remains limited to native panel shape.
-
-Official sample layout lives in `web/src/layout.ts`:
-
-```ts
-export const panelLayout = {
-  left: ["appName", "workspaces", "focusedWindow"],
-  center: ["clock"],
-  right: ["battery", "network", "actionStatus", "bridgeStatus"],
-};
-```
-
-Rules:
-
-- Rust TOML has no `[widgets]` section; `serde(deny_unknown_fields)` rejects it.
-- Custom frontends replace or build static assets; Rust only requires the native bridge schema.
-- Widget layout changes do not grant bridge permissions.
-
-### Tests
-
-- Config rejects `[widgets]`.
-- Frontend view-model tests cover layout-dependent workspace filtering and status text.
-
-## Phase 12 — Niri event-stream provider
-
-### Goal
-
-Replace repeated `niri msg` polling with an efficient event-stream-backed state cache if measurement shows polling overhead or latency is unacceptable.
-
-### Design constraints
-
-- Use `niri msg event-stream` or niri IPC only in a contained provider module.
-- Maintain a last-known snapshot consumed by `getState`.
-- Reconnect on failure with bounded retry/backoff.
-- If the stream is unavailable, fall back to explicit unavailable state.
-
-### Acceptance
-
-- Lower idle CPU than subprocess polling, or a clear decision to keep polling because measured overhead is already below budget.
-- No hangs on compositor restart or niri IPC loss.
-
-## Phase 13 — Packaging/install refinement
-
-### Goal
-
-Move from packaging examples to a cleaner install story after feature widgets stabilize.
-
-Potential work:
-
-- Decide repository license and update `PKGBUILD` license from `LicenseRef-NotProvided`.
-- Add a local install command documented in README.
-- Add installed default config example under `/usr/share/doc/html-desktop-shell/`.
-- Add release archive/package verification commands that were actually executed.
-
-Do not auto-enable services during install or tests.
-
-## Deferred large features
-
-These are intentionally not next:
-
-- System tray / StatusNotifierItem: DBus-heavy and high surface area.
-- Notifications: requires notification daemon semantics or integration with an existing daemon.
-- Audio controls: PipeWire/WirePlumber/pactl integration should come after simpler system widgets.
-- Launcher/search: needs process launching policy and UI focus design.
-- Full theming system: wait until widget set and layout settle.
-
-## Recommended immediate next task
-
-Implement Phase 8: read-only niri workspace and focused-window status.
-
-This is the smallest step that makes the bar visibly useful while preserving the current safe architecture: one existing `getState` bridge method, no new action permissions, no DBus access, no remote runtime resources, and no compositor fallback.
+The final post-fix two-output matrix passed on 2026-10-06. Compositor observations
+validated exact Quick Panel, HUD, and Diagnostics namespace/output/layer/keyboard
+tuples on both outputs. User observations confirmed rendered content, geometry,
+focus, Escape/explicit/focus-loss closure, Diagnostics handoff, HUD replacement
+and timeout, pointer click-through, and no keyboard-focus capture. Physical
+DP-3 unplug/reconnect preserved the process and restored the correct Bar set.
+SIGINT and SIGTERM each exited normally with no remaining shell layers or
+recorded child processes.
+
+The matrix also found and resolved output-scope and lifecycle defects:
+`niri.focusedWindows.items` now follows each output's active workspace/window;
+the Bar's Niri label uses its immutable surface output rather than global focus;
+and a GIO application hold keeps the host alive through runtime window gaps.
+Request-envelope and privileged-param object checks also reject serde's array
+representation of structs before dispatch. Array-rejection regressions and a
+direct production-dispatcher smoke passed, followed by the native release gates
+on 2026-10-06.
+
+Detailed execution steps, exact bridge schemas, native/frontend file
+boundaries, lifecycle rules, verification matrices, and dated delivery evidence
+are recorded in
+[`html-desktop-shell-multi-surface-implementation-plan.md`](html-desktop-shell-multi-surface-implementation-plan.md).
+
+Native surface contract:
+
+- Introduce a closed `SurfaceKind` model for `Bar`, `QuickPanel`, `WorkspaceHud`, and `DiagnosticsDialog`; do not add generic create/show/close-window methods.
+- Keep the existing Bar as one persistent top-layer surface per active output with its configured exclusive zone.
+- Create every Quick Panel, HUD, and dialog as an independent layer-shell surface, never a normal GTK window or `GtkDialog`.
+- Quick Panel uses the overlay layer, top/right placement, zero exclusive zone, and on-demand keyboard interaction.
+- Workspace HUD uses the overlay layer, centered placement, zero exclusive zone, and no keyboard interaction.
+- Diagnostics Dialog uses the overlay layer, centered placement, zero exclusive zone, and on-demand keyboard interaction.
+- One typed surface registry owns per-output uniqueness, monitor hotplug removal, transient timers, focus/Escape closure, and idempotent application shutdown.
+- All surfaces share one `ProviderRegistry` and `TrustedWebContext`, while every WebView keeps an independent document trust latch and exact caller context.
+
+Bridge v4 contract:
+
+- Replace `HostInfo.panel` with a discriminated `surface` context containing the exact surface kind, monitor index, and output; the Workspace HUD variant also carries its exact workspace index.
+- Migrate the Rust protocol, framework-independent shell API, official frontend, plain HTML example, tests, and documentation as a clean cutover without a bridge v3 compatibility shim.
+- Add only `setQuickPanelOpen({ open })` and `setDiagnosticsDialogOpen({ open })` as new write methods. Native code derives the target output from the trusted caller context.
+- Advertise a surface-scoped capability allowlist. Bar, Quick Panel, HUD, and Diagnostics callers must not receive methods they are not authorized to use.
+- Do not add generic window, HUD, command, compositor-action, filesystem, HTTP, DBus, process, or session-control access.
+
+Quick Panel acceptance criteria:
+
+- A Bar control toggles exactly one Quick Panel on the caller's output; repeated open/close requests are idempotent.
+- The first panel reuses existing workspace, focused-window, network, battery, host, and unavailable state. It introduces no audio, tray, notification, launcher, or session-control provider.
+- Existing workspace focus remains the only product action inside the first panel.
+- Escape, focus loss, monitor removal, and application shutdown close the panel without leaked surfaces or stale callbacks.
+- Mounted caller tests and native contract tests cover exact payloads, authorization, visible errors, duplicate prevention, and lifecycle cleanup.
+
+Workspace HUD acceptance criteria:
+
+- After initial synchronization, the niri reducer emits a narrow typed workspace-activation notification containing the compositor-confirmed output and workspace index whenever the focused workspace actually changes. Initial/recovery snapshots and duplicate activation events do not display a HUD.
+- `SurfaceManager` consumes that typed notification and creates or replaces one non-interactive HUD on the affected output. Keyboard shortcuts and other niri clients therefore behave the same as the Bar action, while `niriFocusWorkspace` only requests the change and never treats subprocess success as confirmed compositor state.
+- The HUD renders the typed workspace context, takes no pointer or keyboard focus, reserves no exclusive zone, and closes through a generation-guarded GLib timer without adding a generic `showHud` method.
+- After the HUD's `GdkSurface` is realized, native code applies an empty input region so the Wayland surface is pointer-transparent. `KeyboardMode::None` or `Widget::set_can_target(false)` alone is not accepted as pointer pass-through.
+- External workspace changes, failed focus actions, duplicate events, reconnects, monitor removal, timer races, and shutdown are tested so an old callback cannot close or mutate a newer HUD.
+
+Diagnostics Dialog acceptance criteria:
+
+- An explicit Bar or Quick Panel control opens one read-only Diagnostics Dialog on the caller's output through `setDiagnosticsDialogOpen`.
+- The dialog renders existing host, capability, surface, and provider availability data without exposing asset paths, arbitrary environment values, logs, filesystem access, or new privileged operations.
+- Escape, focus loss, explicit close, monitor removal, and shutdown are deterministic and idempotent.
+
+Verification gates:
+
+- Native tests cover the surface registry state machine, surface-scoped authorization, monitor hotplug, timer generations, and shutdown.
+- Mounted Vue tests cover Quick Panel toggle and workspace interaction, HUD rendering, Diagnostics unavailable state, keyboard closure, visible failures, and timer/poll cleanup.
+- Compositor smoke checks assert the persistent Bar set and, while each transient surface is open, its exact namespace, output, layer, keyboard mode, uniqueness, and disappearance after close.
+- Manual two-output checks cover geometry, focus behavior, rendered content, zero exclusive zones for transient surfaces, HUD input transparency, and the unchanged 32px Bar exclusive zone.
+
+## Deferred high-surface features
+
+These remain intentionally deferred until a separate design establishes a narrow security and lifecycle boundary:
+
+- StatusNotifierItem/system tray integration;
+- notification daemon behavior;
+- audio controls through PipeWire, WirePlumber, or other session services;
+- launcher/search and process-launch policy;
+- broad DBus or desktop-session control;
+- a runtime plugin system or generic native extension API;
+- a full theming/configuration system.

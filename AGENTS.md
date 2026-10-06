@@ -2,160 +2,128 @@
 
 ## Project Overview
 
-`html-desktop-shell` is a Rust prototype for a top desktop panel rendered with local static web assets inside a GTK4 WebKitGTK 6.0 view. The native window is a Wayland `zwlr_layer_shell_v1` client via `gtk4-layer-shell`.
+`html-desktop-shell` is a Rust 2024, GTK4, gtk4-layer-shell, and WebKitGTK 6.0 desktop-shell host for Wayland compositors exposing `zwlr_layer_shell_v1`. Maintainers must use the current files and repository maps rather than older single-panel descriptions. It owns four typed surfaces—Bar, Quick Panel, Workspace HUD, and Diagnostics Dialog—and serves only local static web assets.
 
-Hard boundary: this is not a compositor. It supports layer-shell-capable Wayland compositors, including niri. It intentionally has no X11, raw TTY, Electron, normal-window, or compositor-less fallback.
+This is not a compositor. It has no X11, raw-TTY, normal-window, Electron, or compositor-less fallback. niri is the primary integration target, but the host can run on another layer-shell compositor with niri-specific provider/action state unavailable.
 
 ## Architecture & Data Flow
 
-High-level flow:
+`src/main.rs` loads configuration and diagnostics, then GTK activation creates `ShellHost`. `src/shell_host.rs` verifies layer-shell support, owns monitor enumeration, creates the shared provider registry and trusted WebKit context, and delegates all surface lifecycle work to `SurfaceManager`.
+
+`src/surface_manager.rs` owns one persistent Bar per usable monitor, all transient surfaces, HUD generations/timers, monitor rebuilds, and compositor activation observation. `src/surface.rs` defines typed surface identity, immutable context, capability scope, geometry, lifetime, layer, anchors, keyboard policy, and pointer policy. `src/surface_window.rs` applies those policies and creates a separate WebView/trust latch for each surface.
+
+Bridge flow:
 
 ```text
 Wayland compositor
-  -> GTK4 layer-shell ApplicationWindow per active monitor
-  -> WebKitGTK WebView
-  -> local generated web assets (`web-dist/` in checkout, installed as `web/`)
-  -> WebKit script message handler named "shell"
-  -> Rust bridge returns versioned JSON responses
-  -> frontend polls getState and updates panel widgets
+  -> SurfaceManager and typed GTK layer-shell windows
+  -> independent local WebKitGTK WebViews
+  -> exact trusted entry-document gate
+  -> WebKit handler "shell"
+  -> Bridge v4 method/parameter/caller-surface authorization
+  -> shared cached providers or a typed surface/compositor action
+  -> structured JSON response
 ```
 
-Key modules:
+Bridge v4 has six exact methods. `getHostInfo` and `getCapabilities` exist on all surfaces; Workspace HUD has no state or action methods; Diagnostics has state and may close itself; Bar and Quick Panel can read state, focus a validated niri workspace, and open/close supported transient surfaces. Browser input never chooses a trusted monitor or output.
 
-- `src/main.rs`: creates `gtk4::Application` with `APP_ID`, loads config and diagnostics, owns `ShellHost` for the application lifetime.
-- `src/shell_host.rs`: owns monitor enumeration, hotplug rebuilds, provider registry, and WebView asset lookup.
-- `src/shell_window.rs`: creates one layer-shell/WebKit panel for a specific monitor.
-- `src/bridge.rs`: registers the single WebKit message handler `shell` and routes versioned bridge requests.
-- `src/messages.rs`: native bridge wire protocol, capabilities, and tests.
-- `src/providers/`: native state providers used by `getState`.
-- `web/`: official Vue 3 + Vite + TypeScript sample frontend source. Production assets are generated to `web-dist/` and installed as static web assets.
-- `test/`: niri compositor configs for manual QA, not automated test code.
+Important lifecycle invariants:
 
-Important invariants:
-
-- Call `gtk4_layer_shell::is_supported()` before creating the panel behavior. Unsupported layer-shell is fatal and should remain a clean `Err` path.
-- Default panel height is 32px, but `panel_height` config may change it. Native exclusive zone/default size and CSS layout must stay consistent.
-- Defaults are top layer, left/right/top anchors, no bottom anchor, and `KeyboardMode::OnDemand`; config may change layer and keyboard mode only through typed values.
-- Connect the WebKit reply callback before registering the `shell` message handler.
-- The bridge is deny-by-default. Do not add filesystem, process, network, DBus, clipboard, screenshot, notification, session-control, or generic eval access without an explicit design change.
-- Web asset lookup checks `$HTML_DESKTOP_SHELL_WEB_DIR`, `$PWD/web-dist`, compile-time manifest `web-dist`, XDG/local data web dirs, then `/usr/share/html-desktop-shell/web`; missing asset errors should list every checked path.
+- Build a full replacement Bar set before tearing down the current set on monitor changes.
+- Close Quick Panel and Diagnostics idempotently on Escape, focus loss, explicit close, rebuild, or shutdown.
+- Opening Diagnostics from Quick Panel closes the Quick Panel only after the open succeeds.
+- Publish HUDs only from compositor-confirmed post-synchronization workspace activation; suppress initial, recovery, and duplicate events.
+- Guard HUD timeout callbacks by generation and apply an empty native input region after realization.
+- Shutdown disconnects observers, removes timers, closes all surfaces, and stops providers once; stale queued callbacks do nothing.
+- Each WebView gets an independent trust latch and immutable `SurfaceContext`.
 
 ## Key Directories
 
-- `src/`: Rust host application.
-  - `main.rs`: GTK application entry point.
-  - `shell_window.rs`: layer-shell panel host and WebView loader.
-  - `bridge.rs`: JS-to-Rust WebKit bridge.
-- `web/`: official Vue 3 + Vite + TypeScript sample frontend source.
-  - `packages/shell-api/`: framework-agnostic TypeScript API wrapper for the native bridge.
-  - `src/layout.ts`: default official sample widget layout; Rust does not define widget placement.
-  - `src/`: Vue sample components, store, router, i18n, styles, and view-model tests.
-- `test/`: manual niri QA configs.
-  - `niri-tty2-host.kdl`: host tty2 no-DE/display-manager test.
-  - `niri-kvm-guest.kdl`: KVM guest no-DE/display-manager test, also starts `foot`.
-- `docs/`: roadmap and design history. `docs/html-desktop-shell-feature-roadmap.md` is the active feature roadmap after the foundational layer-shell work.
+- `src/`: Rust host.
+  - `surface.rs`: typed surface policy and context.
+  - `surface_manager.rs`: topology, persistent/transient lifecycle, monitor rebuilds, and HUD observation.
+  - `surface_window.rs`: GTK layer-shell/WebKit window factory.
+  - `shell_host.rs`: application-lifetime host and shared resources.
+  - `bridge.rs` and `messages.rs`: security-sensitive Bridge v4 attachment, protocol, validation, and responses.
+  - `providers/`: clock, host, niri, battery, and network state; niri includes the event-stream collector.
+  - `web_security.rs`: local scheme, navigation/resource blocking, and trust checks.
+- `web/`: official Vue 3/Vite/TypeScript frontend.
+  - `packages/shell-api/`: framework-independent typed native API.
+  - `src/`: stores, views, widgets, composables, plugins, routing, i18n, and tests.
+- `web-dist/`: generated runtime assets; do not commit.
+- `scripts/`: current-niri smoke harness and assertions.
+- `test/`: manual niri configs and sample TOML, not VM provisioning.
+- `packaging/`: inactive-by-default Arch, user-service, niri-spawn, and default-config examples.
+- `examples/plain-html/`: non-Vue frontend example.
+- `docs/`: implementation plan and active feature roadmap.
 
 ## Development Commands
 
-Use Bun for the official frontend sample and Cargo for the Rust host. The repository also has `scripts/smoke-current-niri.sh` for current-session smoke checks.
+Run from the repository root:
 
 ```bash
-cd web
-bun install
-bun run typecheck
-bun test
-bun run build
-cd ..
-cargo build
+(cd web && bun install --frozen-lockfile)
+(cd web && bun run typecheck)
+(cd web && bun test)
+(cd web && bun run build)
+cargo test --locked
+cargo build --locked
 ./target/debug/html-desktop-shell
 ```
 
-Run from a Wayland compositor that exposes `zwlr_layer_shell_v1`. Running without a supported compositor should fail instead of opening a fallback window.
-
-Dependency check on Arch, before installing WebKitGTK 6.0:
+The frontend build writes `web-dist/`; Cargo writes `target/`. Runtime requires an active layer-shell Wayland session. Diagnostic modes are:
 
 ```bash
-pacman -S --print --needed --print-format '%n %v %s' webkitgtk-6.0
-sudo -v
-sudo pacman -S --needed webkitgtk-6.0
-pkg-config --modversion webkitgtk-6.0
+./target/debug/html-desktop-shell --print-capabilities
+./target/debug/html-desktop-shell --config ./test/panel-default.toml --print-config
+./target/debug/html-desktop-shell --check
 ```
 
-Manual niri runs:
-
-```bash
-# Host tty2 manual test from the project root
-niri --session --config ./test/niri-tty2-host.kdl
-
-# Inside the designed KVM guest flow
-niri --config ./test/niri-kvm-guest.kdl
-```
-
-No project-specific Rust lint or format configuration is present. For Rust-only changes, use standard Cargo/Rust tooling available in the environment (`cargo build`, and `cargo fmt`/`cargo clippy` when those components are installed). For web changes, use the Bun/Vite frontend workflow and keep generated `web-dist/` out of git.
+Use `scripts/smoke-current-niri.sh` only in a prepared niri session because it launches and closes surfaces and invokes niri inspection/actions. Packaging and local-install commands copy binaries, generated assets, config, and integration examples; no service is enabled automatically.
 
 ## Code Conventions & Common Patterns
 
 Rust:
 
-- Edition: 2024 (`Cargo.toml`).
-- Naming: `snake_case` functions/modules, `SCREAMING_SNAKE_CASE` constants, GTK types from gtk-rs.
-- Error handling: return `Result` with simple strings at module boundaries; log with `eprintln!`; avoid panics in runtime paths.
-- No async Rust runtime and no worker threads. GTK/WebKit callbacks run on the GTK main loop.
-- Prefer explicit constants for magic values: `APP_ID`, `PANEL_NAMESPACE_PREFIX`, `BRIDGE_VERSION`, `HANDLER_NAME`.
-- Keep fallibility visible. Layer-shell unsupported and missing runtime `index.html` assets are fatal; bridge attach failure is logged but the panel may still render.
+- Follow Rust 2024 naming and formatting conventions.
+- Keep GTK/WebKit work on the GLib main loop; the niri collector uses non-blocking GIO callbacks rather than an async Rust runtime.
+- Return explicit errors at module boundaries and avoid panics in runtime paths.
+- Keep surface policy typed and centralized. Do not scatter string-based surface checks through bridge or UI code.
+- Preserve transactional monitor rebuild and idempotent close/shutdown behavior.
+- Keep provider reads cache-only; they must not wait for niri IPC.
+- Keep the bridge deny-by-default and validate exact object shape, caller capability, trusted entry document, monitor context, and workspace allowlist.
 
 Web:
 
-- Core runtime loads only local static assets. The official sample uses Vue 3 + TypeScript + Vite, source lives in `web/`, the Bun lockfile is committed, production assets are generated to `web-dist/`, and CDN/remote scripts/assets are not allowed.
-- The stable frontend API is framework-agnostic `@html-desktop-shell/shell-api`; it must not import Vue, PrimeVue, Pinia, Router, i18n, VueUse, or Lucide.
-- Official sample component names/layout live in `web/src/layout.ts`; Rust does not define widget placement, visibility, or styling.
-- CSS must adapt to the native panel height; Rust config/exclusive zone and visual layout must stay consistent.
-
-State management:
-
-- Native state is held by `ShellHost`, provider snapshots, config, and monitor list handles.
-- Browser-side state is derived from `getHostInfo` and `getState` polling and should remain small, explicit DOM text/classes.
-- No persistence layer, IPC server, async Rust runtime, or background thread system exists.
+- Use Bun and the committed lockfile. Keep `web-dist/` generated.
+- The shell API package must remain framework-agnostic; it must not import Vue, Pinia, Router, i18n, or UI libraries.
+- Frontend code owns layout and presentation; Rust owns native geometry, surface lifetime/input policy, and security.
+- Use local assets only. Do not add remote scripts, remote navigation, or a generic native-command escape hatch.
+- Keep per-view polling and stores isolated even though native provider state is shared.
 
 ## Important Files
 
-- `Cargo.toml`: crate manifest and dependency versions (`gtk4`, `gtk4-layer-shell`, `webkit6`, `javascriptcore6`, `glib`).
-- `Cargo.lock`: locked Rust dependency graph; keep it updated with dependency changes.
-- `README.md`: authoritative user-facing build, run, dependency, support-matrix, and manual verification instructions.
-- `docs/html-desktop-shell-feature-roadmap.md`: active post-foundation feature roadmap. Check before adding panel widgets or native bridge capabilities.
-- `src/shell_window.rs`: highest-risk file for compositor behavior, window geometry, and WebKit loading.
-- `src/bridge.rs`: security-sensitive boundary between web UI and native host.
-- `test/*.kdl`: manual compositor-session entry points.
+- `Cargo.toml` and `Cargo.lock`: Rust crate, native dependencies, and locked graph.
+- `README.md`: current user-facing support, build, architecture, QA, limitations, and dual-license boundary.
+- `codemap.md`: current repository atlas; child `codemap.md` files provide subsystem navigation.
+- `src/surface_manager.rs`: highest-risk lifecycle and topology implementation.
+- `src/surface.rs`: authoritative typed policies and capability relationship.
+- `src/surface_window.rs`: native geometry, input region, WebKit creation, and per-view trust setup.
+- `src/bridge.rs`, `src/messages.rs`, and `src/web_security.rs`: native/web security boundary.
+- `docs/html-desktop-shell-feature-roadmap.md`: outstanding defects and release gates.
+- `scripts/niri-layer-smoke.ts` and its tests: compositor-visible automated smoke behavior.
+- `LICENSE-APACHE` and `LICENSE-MIT`: alternative repository licenses, at the recipient's option.
 
 ## Runtime/Tooling Preferences
 
-- Required runtime/build stack: Rust/Cargo, Bun, GTK4, `gtk4-layer-shell`, WebKitGTK 6.0, `pkgconf`, and a Wayland compositor with `zwlr_layer_shell_v1`.
-- Target compositor for local validation: niri.
-- Package manager in docs: Arch `pacman`; dry-run the `webkitgtk-6.0` transaction before installing.
-- Web runtime: WebKitGTK inside GTK4, not Node, Electron, Tauri, wry, WPE, CEF, or Qt WebEngine.
-- Do not add fallback backends casually. X11 would require a separate EWMH dock/strut implementation; it cannot reuse the Wayland layer-shell path.
-- Do not add generic bridge methods or filesystem/process/network/DBus/clipboard/screenshot/session/eval access.
+Use Cargo for Rust and Bun for the official frontend. Required native libraries are GTK4, gtk4-layer-shell, and WebKitGTK 6.0, discoverable through pkg-config. The target runtime is a Wayland compositor with layer-shell, preferably niri. Do not introduce X11, Electron, Tauri, Qt WebEngine, generic HTTP serving, or fallback window backends into this architecture without an explicit project-level redesign.
+
+Configuration and assets follow explicit-path, XDG/user, checkout/build, and system-package resolution rules documented in the README. Error messages for unresolved assets should retain the checked candidate list without embedding machine-specific documentation.
 
 ## Testing & QA
 
-There are Rust tests and Bun frontend tests. `test/` contains manual niri configs only.
+For permanent changes, run the relevant frontend tests/typecheck/build and Rust tests/build. Pure protocol, policy, serialization, collector, and view-model behavior belongs in automated tests. Full GTK layer-shell/WebKit and multi-monitor behavior requires compositor-backed QA.
 
-Required smoke check after behavior changes:
+In a prepared niri session, verify all four surface types, one Bar per usable monitor, namespaces, layers, output placement, exclusive zones, keyboard modes, transient idempotence, focus-loss/Escape closure, Diagnostics-from-Quick-Panel ordering, HUD content/generation timeout, native pointer transparency, monitor hotplug transactionality, and clean shutdown. Also test malformed/unknown/unauthorized Bridge calls, remote/navigation/resource rejection, stale monitors, unavailable niri, collector desynchronization/reconnect, and provider shutdown.
 
-1. `cd web && bun install && bun run typecheck && bun test && bun run build`
-2. `cargo build`
-3. Run `./target/debug/html-desktop-shell` under a layer-shell-capable Wayland session.
-4. Verify visually:
-   - 32px top panel appears.
-   - Left text is `HTML Shell`.
-   - Center clock updates once per second.
-   - Right status includes `bridge: wayland-layer-shell`.
-   - Maximized windows do not cover the top 32px, proving the exclusive zone is active.
-
-Manual environment checks:
-
-- Host no-DE/display-manager path: run `niri --session --config ./test/niri-tty2-host.kdl` from tty2.
-- Boundary check: running the binary directly from a raw TTY without a compositor must not display a fallback window.
-- KVM path is documented in `README.md` and uses `test/niri-kvm-guest.kdl`; it is designed for isolated validation, not a routine local test.
-
-If adding automated tests later, start with pure logic around path resolution and bridge payload behavior. Full layer-shell/WebKit behavior needs a compositor-backed integration environment.
+The existing smoke validator does not prove rendered content, focus, exclusive-zone geometry, or pointer transparency. Keep those as explicit observations. Two-active-output post-fix QA remains a release gate for subsequent lifecycle/output changes; preserve dated verification records and do not convert an unobserved procedure into a pass claim.
