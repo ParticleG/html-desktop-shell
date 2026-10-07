@@ -2,7 +2,7 @@
 
 ## Responsibility
 
-This directory is the Bun workspace and Vite application root for the official Vue 3 frontend. It builds one local asset bundle used by four independent native layer-shell windows and connects those windows to Bridge v4 through the framework-independent workspace package `@html-desktop-shell/shell-api`.
+This Bun workspace/Vite root builds the replaceable official Vue 3 frontend for four native surfaces, using framework-independent Bridge v5 package `@html-desktop-shell/shell-api`.
 
 ## Entry points and commands
 
@@ -15,7 +15,7 @@ This directory is the Bun workspace and Vite application root for the official V
 ## Directory relationships
 
 - [`src/`](src/codemap.md) contains root dispatch, four views, Pinia state, polling, layout, localization, styles, view-model helpers, widgets, plugins, and mounted tests.
-- [`packages/`](packages/codemap.md) contains reusable workspace packages. `shell-api/` is the framework-independent Bridge v4 boundary.
+- [`packages/`](packages/codemap.md) contains reusable packages; `shell-api/` is the framework-independent Bridge v5 boundary.
 - `tsconfig.json` applies strict bundler-style TypeScript checks to application and package sources; `env.d.ts` provides Vite and Vue SFC declarations.
 - `vite.config.ts` uses the Vue plugin, a relative `./` asset base, and emits to repository-level `web-dist/` after clearing the prior output.
 
@@ -30,13 +30,13 @@ This directory is the Bun workspace and Vite application root for the official V
 
 ## Verification structure
 
-- Shell-api tests cover exact Bridge v4 types, validators, wrapper payloads, and native errors.
+- Shell-api tests cover v5 bootstrap validation and native error preservation; caller behavior and protocol boundaries belong to mounted/native tests and real IPC smoke.
 - Root mounted tests cover all four dispatch variants and bootstrap validation failures.
 - View mounted tests cover Bar/transient controls, scoped capabilities, polling lifecycle, Diagnostics reasons/recovery, and workspace actions through the real component → Pinia → shell-api path.
 - Widget mounted tests cover pointer/keyboard workspace-index behavior and output-scoped active-window state; the Bar suite verifies its output label does not follow global keyboard focus. Pure view-model tests cover formatting and filtering.
 
 ## Boundaries
 
-- **Native host:** shell-api is the typed browser adapter; native Bridge v4 owns transport installation, scoped authorization, parameter validation, surface lifetime, and state production.
+- **Native host:** Bridge v5 owns trusted transport, surface/capability authorization, strict params, native cache identity, desktop actions and surface lifecycle.
 - **Framework:** shell-api has no Vue/Pinia dependency. Application state and presentation live under `src/`.
 - **Assets:** runtime UI, theme, icons, and styles are bundled locally; the host uses relative static asset URLs.

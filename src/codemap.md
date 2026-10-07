@@ -2,7 +2,7 @@
 
 ## Responsibility
 
-This directory implements the native process behind `html-desktop-shell`: it loads and validates runtime configuration, resolves the local web bundle, starts GTK, and gives one `SurfaceManager` ownership of four typed WebKit-backed layer-shell surfaces. It exposes only the surface-scoped Bridge v4 request/reply protocol, supplies shared host state through native providers, and supports diagnostic-only invocations that exit before the GTK application loop.
+This directory implements the native `html-desktop-shell` process: configuration/assets, GTK activation, four typed WebKit layer-shell surfaces, surface-scoped Bridge v5 and shared native providers. Desktop capabilities remain independent of frontend framework. Diagnostic invocations exit before the application loop.
 
 ## Entry Point and Module Map
 
@@ -15,9 +15,9 @@ This directory implements the native process behind `html-desktop-shell`: it loa
 - `surface_manager.rs` — all native surface ownership and orchestration. `SurfaceManager` owns construction dependencies, monitor bindings, persistent Bar instances, the typed transient `LifecycleRegistry`, HUD generations/timers, and the provider activation-handler ID.
 - `surface_window.rs` — shared typed window factory. `SurfaceInstance` pairs context and window; `surface_window_for_monitor()` applies per-kind layer-shell policy and namespace, creates a secure WebView, attaches weak lifecycle/Bridge callbacks, and loads the trusted entry URI.
 - `web_security.rs` — local-content security boundary. `TrustedWebContext` serves the read-only custom asset scheme and creates per-view trust latches with navigation, popup, response, load, URI, failure, and resource enforcement hooks.
-- `bridge.rs` — WebKit transport adapter. `attach_bridge()` captures the receiving `SurfaceContext`, shared `ProviderRegistry`, and `Weak<RefCell<SurfaceManager>>`; after trust validation it supplies exact provider and surface-operation closures to the dispatcher without owning the manager.
-- `messages.rs` — Bridge v4 protocol. `BRIDGE_VERSION`, `capabilities()`, `capabilities_for()`, `NativeRequest`, `NativeResponse`, `NativeError`, `NativeMethodError`, and `handle_native_request()` implement typed context reporting, per-surface authorization, strict parameters, and stable response envelopes.
-- [`providers/`](providers/codemap.md) — provider registry, Niri reducer/publication/collector and typed workspace-activation observers, synchronous workspace action, and Linux battery/network snapshots.
+- `bridge.rs` — trusted WebKit request/reply adapter; captures immutable surface identity and weak manager ownership, dispatches strict typed operations, derives native point/launch context and rechecks live view/trust before asynchronous replies.
+- `messages.rs` — Bridge v5 types, 20-method surface-scoped capability matrix, strict object parameters, `NativeDispatch` and stable structured replies.
+- [`providers/`](providers/codemap.md) — shared Niri/system/desktop state, exact workspace/audio/tray/notification/application operations, native icon pixels and cancellable lifecycle.
 
 ## Design and Patterns
 
@@ -27,8 +27,8 @@ This directory implements the native process behind `html-desktop-shell`: it loa
 - **Transient lifecycle:** Quick Panel and Diagnostics open idempotently on the caller's current binding and close idempotently. Both close on Escape or after losing an acquired active state. Opening Diagnostics from Quick also closes that Quick Panel. Close callbacks remove only the registry instance whose GTK window identity still matches, preventing stale callbacks from deleting replacements.
 - **Compositor-confirmed HUD:** the provider observer emits only later focused-workspace changes. `show_workspace_hud()` resolves the activation output against current bindings, advances a per-monitor generation, destroys the preceding HUD and timer, creates a context containing the confirmed workspace index, and schedules a 1.5-second close. Generation checks make old callbacks harmless.
 - **Per-kind layer-shell policy:** every undecorated transparent-content window is monitor-bound and named `<namespace-prefix>-<monitor-index>`, using `html-desktop-shell-panel`, `html-desktop-shell-quick-panel`, `html-desktop-shell-workspace-hud`, or `html-desktop-shell-diagnostics`. Bar spans the top edge with configured layer, height, exclusive zone, and keyboard mode. Quick Panel is a fixed 384×480 top-right overlay below the Bar with on-demand keyboard. HUD is a centered 280×96 overlay with no keyboard or exclusive zone, cannot be targeted, and receives an empty GDK input region on realize. Diagnostics is a fixed centered 560×480 overlay with on-demand keyboard and no exclusive zone.
-- **Bridge v4 scoped authority:** Bar and Quick Panel allow all six exact methods; HUD allows only `getHostInfo` and `getCapabilities`; Diagnostics allows those plus `getState` and `setDiagnosticsDialogOpen`, where it may close but not reopen itself. Unsupported matrix cells return `surface_forbidden`; privileged parameter structs deny unknown fields.
-- **No generic native authority:** no dispatched method evaluates code or exposes arbitrary filesystem, process, network, DBus, clipboard, screenshot, notification, or session-control access. Surface operations are exact boolean open/close requests resolved from the caller's current typed monitor context.
+- **Bridge v5 scoped authority:** Bar/Quick Panel allow all 20 exact methods; HUD keeps host/capabilities; Diagnostics keeps host/capabilities/state/self-close and gets new provider availability/count summaries. Unauthorized cells return `surface_forbidden`; strict params deny unknown fields.
+- **No generic native authority:** operations never expose arbitrary commands, arguments, paths, URIs, DBus identities, monitor coordinates or session control. Desktop caches authorize IDs/revisions; surface policy stays native-owned.
 - **Shared provider registry:** all surfaces clone one `ProviderRegistry`; reads clone the same atomic Niri cache without waiting for compositor IPC. Provider details, activation suppression, and shutdown are in the [provider map](providers/codemap.md).
 - **Canonical custom-scheme assets and one-shot trust:** `ResolvedWebAssets` restricts requests to regular contained files under the exact scheme authority. Each view trusts only the committed initial entry navigation; redirects, popups, URI/response mismatch, untrusted resources, failures, or unexpected policy decisions permanently revoke Bridge access.
 - **Fail-fast startup, degradable runtime:** invalid configuration, unsupported layer shell, missing display/assets/usable monitors, and initial Bar failure reach the process boundary. Later bridge/load/topology/transient failures are logged or returned as structured errors without granting fallback authority.
@@ -50,13 +50,13 @@ This directory implements the native process behind `html-desktop-shell`: it loa
 3. `setQuickPanelOpen` and `setDiagnosticsDialogOpen` first call `current_binding()` to reject stale callers. Open paths build one typed transient from retained manager dependencies and insert it only if the context remains current; close paths remove only the requested key.
 4. A post-baseline `WorkspaceActivation { output, workspace_index }` calls `show_workspace_hud()`. The manager resolves output to a live binding, replaces that monitor's HUD generation and timer, presents the new HUD, and closes it after `WORKSPACE_HUD_DURATION` only if the timer generation remains current.
 
-### JavaScript-to-native Bridge v4 request
+### JavaScript-to-native Bridge v5 request
 
 1. Trusted page JavaScript posts `{ id, method, params }` to WebKit's `shell` reply handler.
 2. `bridge::attach_bridge()` requires the exact trusted state and URI, serializes JavaScriptCore to JSON, and calls `messages::handle_native_request()` with the receiving context and four narrow closures: state snapshot, workspace focus, Quick open/close, and Diagnostics open/close.
 3. `handle_native_request()` requires an object-root token before complete JSON decoding and checks `methods_for(surface.kind())` before dispatch. `getHostInfo` returns backend, Bridge version, and exact surface context; `getCapabilities` returns only that context's methods; `getState` snapshots providers. Workspace and surface-action params require `Value::is_object()` before borrowed typed deserialization, so serde's array representation cannot reach actions; workspace indices remain positive and open params remain strict `{ open: bool }`.
 4. The action closure validates workspace membership in the latest atomic Niri publication before running exactly `niri msg action focus-workspace <value>`. Surface closures upgrade the weak manager and return `surface_unavailable` if ownership or the caller's monitor binding is gone.
-5. `messages.rs` serializes success or stable structured errors; `bridge.rs` returns the JSON through WebKit's reply object.
+5. `NativeDispatch::Desktop` carries an authorized typed request to the registry. Native context supplies tray coordinates/application launch context. Cached or asynchronous providers return a structured envelope, and the transport rechecks the still-live trusted WebView before replying.
 
 ### Teardown
 
@@ -66,14 +66,14 @@ This directory implements the native process behind `html-desktop-shell`: it loa
 
 ### Diagnostic-only invocation
 
-The shared parser removes diagnostic flags from GTK arguments. `diagnostics::run_if_requested()` prints the Bridge v4 all-surface capability matrix, effective strict configuration, and/or environment checks; success exits before application construction.
+The parser removes diagnostic flags from GTK arguments. `diagnostics::run_if_requested()` prints the Bridge v5 all-surface capability matrix, strict effective config and/or environment checks, then exits before application construction.
 
 ### Current native tests
 
 - `surface.rs` asserts exact JSON shapes and typed accessors for all four contexts.
-- `messages.rs` asserts Bridge v4 host info, exact scoped capability matrix, every forbidden matrix cell, absence of generic methods, strict privileged parameters, array-envelope/param rejection without callback execution, Diagnostics self-open denial, and stable malformed/action errors.
+- `messages.rs` covers v5 host/context, scoped capabilities, forbidden cells, strict object/numeric/identity parameters, zero privileged dispatch on invalid input, Diagnostics self-open denial and Unicode action-key bounds.
 - `surface_manager.rs` exercises duplicate/stale insert handling, idempotent close/stop, HUD generations and stale timers, topology reset, and indexed monitor collection.
-- Provider tests cover registry snapshots, typed observer disconnect, reducer barriers/schema/mutations, atomic action validation, activation baseline/duplicate/unavailable/stale/shutdown suppression, callback borrow safety, reconnect/backoff/completion gates, real GIO child recovery/reaping, and sysfs snapshots.
+- Provider tests cover Niri publication/lifecycle and sysfs behavior, plus audio parsing/confirmation/cancellation, tray owner/menu invalidation/leaf authorization, notification replacement/expiry/sender actions, installed-catalog filtering/ranking/refresh/launch invalidation and icon pixel bounds. Real production-controller IPC/subprocess/launch smoke is recorded in the implementation plan.
 - `web_security.rs`, configuration, assets, and diagnostics retain their boundary-focused unit coverage; live Bar/transient compositor behavior is exercised by the manual Niri smoke profiles rather than claimed as a standing result.
 
 ## Integration Points

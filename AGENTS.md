@@ -25,7 +25,7 @@ Wayland compositor
   -> structured JSON response
 ```
 
-Bridge v4 has six exact methods. `getHostInfo` and `getCapabilities` exist on all surfaces; Workspace HUD has no state or action methods; Diagnostics has state and may close itself; Bar and Quick Panel can read state, focus a validated niri workspace, and open/close supported transient surfaces. Browser input never chooses a trusted monitor or output.
+Bridge v5 has 20 exact methods. `getHostInfo` and `getCapabilities` exist on all surfaces; Workspace HUD has no state or action methods; Diagnostics has summary-only desktop state and may close itself; Bar and Quick Panel can read state, focus a validated niri workspace, open/close supported transient surfaces, and use the exact audio, tray/menu, notification, and installed-application operations. Browser input never chooses a trusted monitor, output, native command, path, URI, bus identity, or global coordinate.
 
 Important lifecycle invariants:
 
@@ -44,8 +44,8 @@ Important lifecycle invariants:
   - `surface_manager.rs`: topology, persistent/transient lifecycle, monitor rebuilds, and HUD observation.
   - `surface_window.rs`: GTK layer-shell/WebKit window factory.
   - `shell_host.rs`: application-lifetime host and shared resources.
-  - `bridge.rs` and `messages.rs`: security-sensitive Bridge v4 attachment, protocol, validation, and responses.
-  - `providers/`: clock, host, niri, battery, and network state; niri includes the event-stream collector.
+  - `bridge.rs` and `messages.rs`: security-sensitive Bridge v5 attachment, protocol, validation, and responses.
+  - `providers/`: system/niri state plus asynchronous audio, SNI/DBusMenu, notifications, installed applications, and bounded native icon pixels.
   - `web_security.rs`: local scheme, navigation/resource blocking, and trust checks.
 - `web/`: official Vue 3/Vite/TypeScript frontend.
   - `packages/shell-api/`: framework-independent typed native API.

@@ -2,7 +2,7 @@
 
 ## Responsibility
 
-`useShellPolling.ts` owns view-scoped, serialized shell-state polling. It is used by the Bar, Quick Panel, and Diagnostics views; the Workspace HUD intentionally never calls it.
+`useShellPolling.ts` owns view-scoped, serialized shell-state polling. It is used by the Bar, Quick Panel, and Diagnostics views; the Workspace HUD intentionally never calls it. `useNativeAction.ts` owns local desktop-control busy/error state, not native permissions or provider business state.
 
 ## Lifecycle and scheduling
 
@@ -19,3 +19,9 @@
 - `WorkspaceHudView.vue` renders the compositor-confirmed `WorkspaceHudSurfaceContext` passed by `SurfaceRoot`; it has immutable display data and no state polling.
 - `shell.ts` owns state, bridge errors, and refresh concurrency. This composable owns only lifecycle and scheduling.
 - Mounted Bar tests cover an in-flight refresh at cleanup, continued serialized polling while mounted, and timer removal after unmount.
+
+## Desktop actions
+
+- `useNativeAction()` rejects concurrent or post-unmount work, clears the previous error when an action starts, and exposes the completed native result only while mounted.
+- `nativeErrorMessage()` preserves structured `NativeBridgeError` codes/messages for visible failures without exposing raw IPC or subprocess details.
+- Audio, tray, notification, and launcher widgets use this local lane; they independently guard IDs, capabilities, and retired read generations before updating presentation.

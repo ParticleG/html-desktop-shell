@@ -2,15 +2,15 @@
 
 ## Responsibility
 
-`index.ts` is the framework-independent TypeScript boundary for Bridge v4. It defines the discriminated surface and snapshot types, validates the two bootstrap results that establish a surface's identity and authority, adapts WebKit's reply handler, and exposes operation-specific wrappers. It has no Vue, Pinia, or component dependency.
+`index.ts` is the framework-independent TypeScript boundary for Bridge v5. It defines discriminated surface/provider types, validates bootstrap identity/capabilities, adapts WebKit replies and exposes exact named wrappers. It has no Vue, Pinia or component dependency.
 
-## Bridge v4 model
+## Bridge v5 model
 
 - `SurfaceContext` is the union of `BarSurfaceContext`, `QuickPanelSurfaceContext`, `WorkspaceHudSurfaceContext`, and `DiagnosticsDialogSurfaceContext`.
 - Every surface carries `kind`, a nonnegative 32-bit `monitorIndex`, and `output: string | null`. `WorkspaceHudSurfaceContext` additionally requires a positive integer `workspaceIndex`.
-- `HostInfo` has the exact literals `shell: "html-desktop-shell"`, `backend: "wayland-layer-shell"`, and `bridgeVersion: 4`, plus one `surface` variant. There is no panel field or generic panel context.
-- `ShellMethod` is the closed set `getHostInfo`, `getCapabilities`, `getState`, `niriFocusWorkspace`, `setQuickPanelOpen`, and `setDiagnosticsDialogOpen`. `Capabilities.methods` is a surface-scoped subset of that set.
-- `ShellState` aggregates optional clock, host, Niri, battery, and network snapshots. Most provider data fields remain optional because providers can be absent or partially populated; the output-scoped window envelope's required fields are described below.
+- `HostInfo` requires exact shell/backend literals and `bridgeVersion: 5`, with one immutable `SurfaceContext`.
+- `ShellMethod` is the closed 20-method set: six retained surface/state/workspace operations plus 14 audio/tray/notification/application operations.
+- `ShellState` includes existing system/Niri state and cached audio/tray/notification/application snapshots. New providers have explicit available/unavailable unions; Diagnostics audio/tray are summary-only.
 - `NiriState.focusedWindows` uses `NiriFocusedWindowsState` with required `available`, optional `items`/`reason`, and `NiriFocusedWindowItem { output: string, window: FocusedWindow | null }`. `FocusedWindow` has optional `title`/`appId`; output selection belongs to the consuming surface, while `focusedOutput` is global compositor focus.
 - `NativeResponse<T>`, `NativeError`, and `NativeBridgeError` model replies. `NativeBridgeError` preserves both the native message and optional error code.
 
@@ -33,6 +33,21 @@
 | `focusWorkspace(workspaceIndex)` | `niriFocusWorkspace` | `{ workspaceIndex }` | `{ workspaceIndex }` |
 | `setQuickPanelOpen(open)` | `setQuickPanelOpen` | `{ open }` | `{ open }` |
 | `setDiagnosticsDialogOpen(open)` | `setDiagnosticsDialogOpen` | `{ open }` | `{ open }` |
+| `setAudioVolume(volume)` / `setAudioMuted(muted)` | exact audio write | `{ volume }` / `{ muted }` | fresh `AudioState` |
+| `getTrayMenu(itemId,menuItemId=0)` | `getTrayMenu` | `{ itemId,menuItemId }` | native `TrayMenu` revision/tree |
+| `activateTrayItem` / `secondaryActivateTrayItem` / `showTrayItemContextMenu` | corresponding exact item action | `{ itemId }` | `{ itemId }` |
+| `scrollTrayItem(itemId,delta,orientation)` | `scrollTrayItem` | named fields | `{ itemId }` |
+| `activateTrayMenuItem(itemId,menuItemId,revision)` | `activateTrayMenuItem` | named fields | selected IDs/revision |
+| `getNotifications()` | `getNotifications` | `{}` | session history items |
+| `dismissNotification` / `invokeNotificationAction` / `markAllNotificationsRead` | corresponding exact notification action | native ID/key or `{}` | authoritative count state |
+| `searchApplications(query,limit=25)` | `searchApplications` | `{ query,limit }` | installed `DesktopApplication` items |
+| `launchApplication(applicationId)` | `launchApplication` | `{ applicationId }` | `{ applicationId }` |
+
+`ShellIcon` carries bounded native RGBA8 pixels, not a URL. Tray items include
+`hasMenu`; menu nodes include `hasSubmenu` for lazy expansion. Notification text
+is literal; application results contain installed IDs, not filenames/commands.
+Full native bounds, ownership, lifecycle and result details are in the
+[implementation plan](../../../../docs/html-desktop-shell-multi-surface-implementation-plan.md#desktop-capability-extension--bridge-v5).
 
 ## Safety boundary and tests
 
@@ -43,4 +58,4 @@ The named wrappers are the intended API, but exported generic `request()` is not
 - `web/packages/shell-api/package.json` exports this file as `@html-desktop-shell/shell-api`.
 - `web/src/stores/shell.ts` owns application state and calls the operation wrappers.
 - `web/src/SurfaceRoot.vue` dispatches on validated `HostInfo.surface`; views gate controls with validated capabilities.
-- The Rust WebKit handler and Bridge v4 dispatcher provide the transport, scoped authority, state snapshots, and exact reply envelopes consumed here.
+- The Rust WebKit handler and Bridge v5 dispatcher provide transport, immutable surface authority, strict typed operations and trusted asynchronous replies.

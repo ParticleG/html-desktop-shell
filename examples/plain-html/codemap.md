@@ -2,12 +2,12 @@
 
 ## Responsibility
 
-This directory is a minimal, framework-free custom frontend for `html-desktop-shell`. It demonstrates local asset loading and Bridge v4 surface/capability controls without reproducing the packaged multi-surface Vue frontend.
+This is a minimal, framework-free custom frontend for local assets and Bridge v5 surface/capability controls; it does not duplicate the official Vue desktop UI.
 
 - `index.html` is the document entry point and contains only the `#app` loading mount.
 - `shell.css` supplies the self-contained presentation for status details and action buttons.
 - `js/app.js` renders the receiving surface, host state when authorized, and capability-gated controls.
-- [`js/codemap.md`](js/codemap.md) maps the Bridge v4 request wrappers and renderer.
+- [`js/codemap.md`](js/codemap.md) maps the framework-free Bridge v5 named adapters and renderer.
 
 The example is source material, not an automatically selected runtime frontend.
 
@@ -57,7 +57,7 @@ Button handlers disable their button for the in-flight call, clear the old statu
 
 - **Native asset loader:** `HTML_DESKTOP_SHELL_WEB_DIR` can select this contained directory instead of generated or installed assets.
 - **Trusted WebKit boundary:** only the host's reply-capable `shell` handler provides native access; the example itself remains static local content.
-- **Bridge v4 methods:** the module wraps the complete named method set but `app.js` gates every optional read/action with the per-surface capability response.
+- **Bridge v5 methods:** `bridge.js` wraps all 20 exact methods; the minimal renderer capability-gates its surface/workspace demo. Native authorization remains authoritative.
 - **Native surface manager:** Quick Panel and Diagnostics visibility requests are routed to typed manager operations; the example has no direct window or layer-shell authority.
 - **Niri provider:** workspace controls use only published workspace indices and the exact native focus-workspace operation.
 - **Sub-map:** [`js/codemap.md`](js/codemap.md) documents request framing, wrappers, capability behavior, and DOM control flow.

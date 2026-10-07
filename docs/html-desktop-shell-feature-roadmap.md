@@ -2,15 +2,15 @@
 
 ## Audited baseline
 
-The completed foundation and typed multi-surface delivery establish the current
-implementation:
+The completed foundation, typed multi-surface delivery, and desktop-capability
+extension establish the current implementation:
 
 - a Rust 2024, single-process GTK4/WebKitGTK Wayland layer-shell host;
 - one persistent typed Bar per GDK monitor plus independently secured Quick
   Panel, Workspace HUD, and Diagnostics Dialog layer-shell surfaces;
-- a shared `ProviderRegistry` serving clock, host, niri, battery, and network
-  state;
-- deny-by-default Bridge v4 with six exact methods and a surface-scoped
+- a shared `ProviderRegistry` serving system/niri state plus native audio,
+  tray/menu, notification, and installed-application state;
+- deny-by-default Bridge v5 with 20 exact methods and a surface-scoped
   capability matrix;
 - niri snapshots and compositor-confirmed workspace activations published by one
   contained GIO event-stream collector with explicit unavailable/recovery state
@@ -20,9 +20,9 @@ implementation:
 - canonical six-tier lookup for local static frontend assets, served through a
   read-only custom scheme with enforced navigation, origin, CSP, and per-view
   bridge trust policy;
-- an official Vue 3/Vite/Bun frontend using Pinia, `SurfaceRoot`, per-view
-  polling, and eight compile-time Bar layout widgets;
-- a framework-independent Bridge v4 contract, with `examples/plain-html`
+- an official Vue 3/Vite/Bun reference frontend using Pinia, `SurfaceRoot`,
+  per-view polling, eight configured status widgets, and desktop controls;
+- a framework-independent Bridge v5 contract, with `examples/plain-html`
   demonstrating a custom frontend.
 
 The previously measured 500 ms polling cache was retired on 2026-07-23 after reducer/lifecycle tests, fake-child recovery and shutdown checks, and a current-session niri interaction check. Historical polling measurements are not treated as current performance results.
@@ -97,11 +97,10 @@ Acceptance criteria:
 
 ### P2 — Add product widgets or actions only through exact APIs (policy enforced)
 
-Status: policy enforced through the Bridge v4 delivery on 2026-08-02. The only
-new write methods are the exact typed surface operations
-`setQuickPanelOpen({ open })` and `setDiagnosticsDialogOpen({ open })`; unknown
-methods remain denied, and every future proposal remains subject to the
-criteria below.
+Status: policy enforced through the typed surface delivery and the approved
+Bridge v5 desktop extension. Surface and desktop writes use separate exact
+typed operations; unknown methods remain denied, and every future proposal
+remains subject to the criteria below.
 
 New product features are considered individually after the correctness and isolation work above.
 
@@ -193,14 +192,89 @@ Verification gates:
 - Compositor smoke checks assert the persistent Bar set and, while each transient surface is open, its exact namespace, output, layer, keyboard mode, uniqueness, and disappearance after close.
 - Manual two-output checks cover geometry, focus behavior, rendered content, zero exclusive zones for transient surfaces, HUD input transparency, and the unchanged 32px Bar exclusive zone.
 
+### P4 — Framework-independent desktop capabilities (completed)
+
+Approved on 2026-10-08. Deliver complete native audio control, StatusNotifierItem
+tray integration, a standard notification server/center, and installed desktop
+application launch/search before adding reference controls to `web/`.
+
+The core is the native host and public capability protocol, not the Vue UI.
+`web/src/` is a replaceable reference frontend; the shell API remains independent
+of Vue, Pinia, layout, and component lifecycle. Other local static frontends use
+the same contract and native authorization.
+
+Boundaries:
+
+- Audio controls only the default WirePlumber output through fixed asynchronous
+  `wpctl` operations; volume writes are integer percentages from 0 to 100.
+- Tray discovery uses the standard watcher/host protocol. Join an existing
+  watcher; provide one only when absent. Render bounded native icon pixels and
+  DBusMenu trees without accepting browser-selected bus names, paths, or image
+  URLs.
+- The notification server implements `org.freedesktop.Notifications` without
+  replacing another daemon. An existing owner produces explicit unavailable
+  state. Keep bounded session-only history, literal text, expiry, dismissal,
+  read state, and sender-bound actions; no persistence, sound, or URI launch.
+- Application search uses the installed GIO desktop-entry database. Launch only
+  IDs in the current native visible/launchable allowlist, through GIO with no
+  browser-supplied command, argument, file, environment, or URI.
+- Bridge v5 adds exact typed methods. Bar and Quick Panel receive the desktop
+  operations; HUD remains read-only host/capabilities; Diagnostics receives
+  availability/count summaries, not notification bodies or application paths.
+- New IPC and launch operations are asynchronous; provider reads remain
+  cache-only. Shutdown cancels collectors, pending operations, timers, bus
+  registrations, and observation handlers.
+- The reference frontend reuses Bar and Quick Panel rather than adding a generic
+  window API or making Vue state authoritative for native business logic.
+
+Acceptance:
+
+- Verify real DBus registration, notifications, tray item/menu signals, actions,
+  ownership conflicts and shutdown on isolated session buses.
+- Verify actual WirePlumber state/actions and unavailable/recovery behavior.
+- Verify controlled installed desktop-entry search/launch, removal, unknown-ID
+  rejection, and no leaked command lines or filenames.
+- Reject malformed, array, unknown-field, unavailable, stale and unauthorized
+  requests before privileged dispatch.
+- Migrate SDK, official frontend, framework-free example and documentation as a
+  clean v5 cutover. Preserve the prior four-surface lifecycle and local trust
+  policy.
+- Exercise the Vue reference controls through mounted caller tests and rendered
+  runtime checks, including unavailable state and visible action errors.
+
+Delivery verification on 2026-10-08:
+
+- Native implementation/contract coverage passed 124 Rust tests, Clippy, and the
+  locked build; real DBus/subprocess/catalog/launch checks were completed before
+  the reference frontend.
+- The 70-test Bun suite, typecheck, and production frontend build passed. After
+  changing the WebKit search input, all 10 launcher tests and typecheck/build
+  passed again.
+- A real GTK/WebKit host using production source and the trusted local scheme
+  exercised Bar/Quick Panel controls, native canvas pixels, fresh audio writes,
+  literal notification/read/action/dismiss flow, revision-bound tray menus,
+  actual GIO application launch, and restricted Diagnostics.
+- Current-session rendered checks showed real tray/audio/application state and
+  the existing notification-daemon conflict. Watcher/notification owners were
+  unchanged before and after the run; no daemon was stopped or replaced.
+- Runtime checks caught and fixed low-contrast Tabs and WebKit's native search
+  decoration requesting a `data:` SVG. The launcher retains searchbox semantics
+  without relaxing the local-only resource policy.
+- Final current-state checks passed 125 Rust tests and the complete 70-test Bun
+  suite with typecheck, builds, formatting, and Clippy. A failing-before/passing-
+  after DBusMenu regression and real hosted run verified literal angle brackets
+  and entity strings survive native parsing and Vue rendering; SNI ToolTip
+  markup remains separately normalized.
+
+These checks do not claim deliberate notification-daemon migration,
+accessibility-bus health, or the separate full compositor focus/geometry/hotplug/
+pointer-transparency release matrix. Backend and rendered verification details
+are recorded in the implementation plan.
+
 ## Deferred high-surface features
 
 These remain intentionally deferred until a separate design establishes a narrow security and lifecycle boundary:
 
-- StatusNotifierItem/system tray integration;
-- notification daemon behavior;
-- audio controls through PipeWire, WirePlumber, or other session services;
-- launcher/search and process-launch policy;
 - broad DBus or desktop-session control;
 - a runtime plugin system or generic native extension API;
 - a full theming/configuration system.

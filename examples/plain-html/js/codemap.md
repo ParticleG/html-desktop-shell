@@ -2,7 +2,7 @@
 
 ## Responsibility
 
-This directory implements the plain-HTML example's Bridge v4 client and one-shot, surface-aware DOM renderer:
+This directory implements a framework-free Bridge v5 client and one-shot surface-aware DOM renderer.
 
 - `bridge.js` converts named JavaScript functions into request/reply messages for WebKit's `shell` handler.
 - `app.js` discovers the receiving surface and its scoped capabilities, then renders status and only the controls that surface may invoke.
@@ -17,7 +17,7 @@ This directory implements the plain-HTML example's Bridge v4 client and one-shot
 4. returns `response.result` when `response.ok` is true;
 5. otherwise throws `NativeBridgeError`, retaining `response.error.code` and using the native message or `"native bridge request failed"`.
 
-The module exports only exact Bridge v4 adapters:
+The module exports only exact Bridge v5 adapters:
 
 | Function | Native method | Parameters |
 | --- | --- | --- |
@@ -28,13 +28,20 @@ The module exports only exact Bridge v4 adapters:
 | `setQuickPanelOpen(open)` | `setQuickPanelOpen` | `{ open }` |
 | `setDiagnosticsDialogOpen(open)` | `setDiagnosticsDialogOpen` | `{ open }` |
 
+The additional audio, tray/menu, notification and installed-application adapters
+use the same exact v5 params/results documented in the
+[native contract](../../../docs/html-desktop-shell-multi-surface-implementation-plan.md#desktop-capability-extension--bridge-v5).
+`getTrayMenu(itemId,menuItemId=0)` supports native-prepared lazy submenus.
+`app.js` stays a minimal surface/state demo rather than duplicating the official
+desktop UI; every named capability remains usable by another framework-free UI.
+
 The wrapper neither validates nor reshapes successful results. It has no generic invoke, command, file, D-Bus, network, eval, arbitrary Niri action, or window-creation adapter.
 
 ## Capability and Surface Semantics (`app.js`)
 
-`render()` begins with `Promise.all([getHostInfo(), getCapabilities()])`, converts `capabilities.methods` to a `Set`, and calls `getState()` only when listed. Bridge v4 scopes that list:
+`render()` loads host/capabilities concurrently, requires Bridge v5, and requests state only when authorized:
 
-- `bar` and `quickPanel`: all six named methods;
+- `bar` and `quickPanel`: all 20 named methods;
 - `workspaceHud`: `getHostInfo` and `getCapabilities` only;
 - `diagnosticsDialog`: `getHostInfo`, `getCapabilities`, `getState`, and `setDiagnosticsDialogOpen`.
 
@@ -65,7 +72,7 @@ There is no interval, timeout, polling loop, event subscription, store, remote a
 
 - **HTML consumer:** `examples/plain-html/index.html` provides the `#app` mount and imports `app.js`.
 - **Trusted transport:** `window.webkit.messageHandlers.shell.postMessage` is the only browser-to-native dependency and exists only in the trusted hosted document.
-- **Native dispatcher:** `src/messages.rs::handle_native_request` parses requests, enforces per-surface Bridge v4 capabilities, validates exact parameter shapes, and serializes `{ id, ok, result?, error? }`.
+- **Native dispatcher:** Bridge v5 enforces exact surface-scoped methods/parameters and native cache authority; asynchronous operations preserve the same structured reply envelope.
 - **Typed surface controls:** Quick Panel and Diagnostics wrappers delegate visibility to the native surface manager rather than creating or addressing generic windows.
 - **Workspace activation:** the native operation accepts only a positive published workspace index and executes the exact focus-workspace action.
 - **Local-only browser behavior:** without the injected handler, the initial render reaches the text-only `"native bridge unavailable"`/native JavaScript error path; no fallback transport or remote endpoint exists.

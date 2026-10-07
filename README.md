@@ -4,7 +4,7 @@ HTML Desktop Shell is a typed multi-surface desktop shell for Wayland compositor
 
 ## Current status
 
-The current implementation owns four typed surfaces and exposes Bridge v4. Use the current source files and repository maps for architecture details, and rebuild the generated frontend when web sources change. No private endpoint or machine-specific location is required.
+The current implementation owns four typed surfaces and exposes Bridge v5, including native audio, tray, notification, and installed-application capabilities. Use the current source files and repository maps for architecture details, and rebuild the generated frontend when web sources change. No private endpoint or machine-specific location is required.
 
 The repository is active, non-archived, and not presented as a fork. The roadmap records dated delivery verification, remaining defects, and release gates for subsequent changes.
 
@@ -24,6 +24,7 @@ The repository is active, non-archived, and not presented as a fork. The roadmap
 - GTK4, GTK4 layer-shell, and WebKitGTK 6.0 development files
 - a Wayland compositor exposing `zwlr_layer_shell_v1`
 - optionally, niri with a live `NIRI_SOCKET` for niri provider/action support
+- optionally, WirePlumber's `wpctl` for default-output audio and a session DBus for tray/notification integration; missing or conflicting services produce explicit unavailable state
 
 On Arch Linux the native packages are `gtk4`, `gtk4-layer-shell`, and `webkitgtk-6.0`; inspect the proposed package transaction before installation.
 
@@ -78,9 +79,9 @@ Quick Panel and Diagnostics share an idempotent close path for Escape, focus los
 
 A monitor change builds a complete replacement Bar set before closing the old surfaces. On success, the manager closes old persistent and transient surfaces, removes timers, replaces the mapping, and presents the new Bars. After successful startup, `ShellHost` holds the GIO application alive across runtime monitor changes, including temporary windowless states. `Ctrl+C` (`SIGINT`) and `SIGTERM` request normal shutdown, which blocks new work, disconnects observers, removes timers, closes surfaces, and stops shared providers once.
 
-## Native Bridge v4
+## Native Bridge v5
 
-Bridge v4 exposes exactly six methods: `getHostInfo`, `getCapabilities`, `getState`, `niriFocusWorkspace`, `setQuickPanelOpen`, and `setDiagnosticsDialogOpen`. Capabilities are surface-scoped:
+Bridge v5 keeps the original six exact methods and adds 14 narrow desktop operations. Capabilities are surface-scoped:
 
 | Method | Bar | Quick Panel | Workspace HUD | Diagnostics |
 | --- | :---: | :---: | :---: | :---: |
@@ -90,16 +91,60 @@ Bridge v4 exposes exactly six methods: `getHostInfo`, `getCapabilities`, `getSta
 | `niriFocusWorkspace` | yes | yes | no | no |
 | `setQuickPanelOpen` | yes | yes | no | no |
 | `setDiagnosticsDialogOpen` | yes | yes | no | yes |
+| Audio volume/mute | yes | yes | no | no |
+| Tray item/menu operations | yes | yes | no | no |
+| Notification history/read/dismiss/action | yes | yes | no | no |
+| Installed application search/launch | yes | yes | no | no |
 
 Browser parameters cannot select a monitor or output; Rust derives those from immutable trusted caller context. Request envelopes must be JSON objects. Workspace and surface-action params must also be objects, rejecting arrays, missing or mistyped fields, and unknown fields before any action runs. Unauthorized or unknown methods, malformed JSON, stale surface monitors, unavailable niri, unknown workspaces, and failed actions produce structured errors. Diagnostics can use its open/close method only to close itself.
 
+Desktop methods accept exact object parameters, never browser-selected commands,
+arguments, paths, URIs, DBus identities, or global coordinates. Audio writes are
+limited to integer percentages 0–100; actual readings may exceed 100. Tray IDs
+are native-owned and bound to a current unique bus owner. Menu reads support
+root/submenu preparation; clicks require the actual cached revision and an
+enabled, visible leaf. Notifications and application IDs are likewise checked
+against native session/catalog state before dispatch. The original six methods
+retain their v4 semantics; v5 is a clean protocol/SDK/asset cutover.
+
+DBusMenu labels remain literal text, including angle brackets and entity-like
+strings; mnemonic/control-character normalization is separate from SNI ToolTip
+markup handling. The reference UI renders menu labels as text, never HTML.
+
+The complete parameter/result/security contract is recorded in the desktop
+capability extension of
+[`docs/html-desktop-shell-multi-surface-implementation-plan.md`](docs/html-desktop-shell-multi-surface-implementation-plan.md).
+
 ## Providers and frontend
 
-The shared native providers publish clock, host, niri, battery, and network snapshots. The niri collector consumes `niri msg -j event-stream` through non-blocking GIO callbacks, publishes only synchronized workspace/window state, replaces its cache atomically, clears stale data on loss, and reconnects with bounded delay. The remaining providers read local system state.
+The shared native providers publish clock, host, niri, battery, network, audio, tray, notification-count, and installed-application-count snapshots. The niri collector consumes `niri msg -j event-stream` through non-blocking GIO callbacks, publishes only synchronized workspace/window state, replaces its cache atomically, clears stale data on loss, and reconnects with bounded delay. Desktop integration reads are cache-only; IPC, subprocess observation, catalog enumeration, and application launch are asynchronous.
 
 `niri.focusedWindows.items` contains one `{ output, window }` item for each active workspace with an output. The window comes from that workspace's `active_window_id`, has optional `title`/`appId` fields, and is `null` when no active window is known. Bar and Quick Panel select their own output through `HostInfo.surface.output`; their Niri status label uses that same fixed context. `niri.focusedOutput` remains the compositor's global keyboard-focus output, not a surface's identity.
 
 `web/` contains the official Vue 3/Vite/TypeScript frontend. `web/packages/shell-api/` is the framework-agnostic typed bridge wrapper and must remain independent of Vue-specific packages. Frontend layout and presentation are web-owned; Rust owns native surface policy and security.
+
+Audio uses WirePlumber's `wpctl` for the default output only. Tray supports
+StatusNotifierItem/DBusMenu, joins an existing watcher, and supplies a watcher only
+when absent. The notification server implements `org.freedesktop.Notifications`
+without replacing another daemon: existing ownership is explicitly unavailable.
+History is bounded and session-only. Restart after a deliberate notification
+service migration; this host never stops another daemon.
+
+Search/launch uses visible, launchable installed GIO desktop entries. It does not
+execute browser-supplied command lines. Icons are bounded native RGBA pixels for
+canvas rendering, not filesystem or remote image URLs. Diagnostics receives only
+the new providers' availability/count summaries, not tray applications,
+notification bodies, or audio control state.
+
+The reference Bar adds default-output audio, tray icons/actions, and unread
+notification counts. Quick Panel provides lazy Audio, System tray, Notifications,
+and Applications tabs. Native menu trees remain inside Quick Panel; the launcher
+searches installed applications and supports Arrow keys/Enter. Native failures
+and provider-unavailable reasons are visible without granting generic authority.
+
+The launcher uses a text input with `role="searchbox"` because WebKit's native
+search decoration requests a `data:` SVG. This avoids revoking the local-only
+trust latch; the resource policy is not relaxed.
 
 ## Configuration and assets
 
@@ -112,6 +157,12 @@ The web resolver checks an explicit web-directory override, checkout/build locat
 The documented local install copies the release binary under the user's local binary directory, copies `web-dist/` under the user's local data directory, and installs the default TOML under the user's config directory. It does not enable a service. Packaging examples include an Arch package, a user service, and a niri spawn fragment; none is enabled automatically.
 
 Runtime creates GTK layer-shell windows, reads local configuration/assets and system provider state, and may launch the niri event stream. `niriFocusWorkspace` requests a compositor workspace change. The current implementation performs that action through one synchronous subprocess on the WebKit request path.
+
+The desktop providers may launch fixed `wpctl` subprocesses, register a standard
+tray host/watcher and an unoccupied notification service on the session bus, and
+monitor the installed application catalog. Only an explicit allowlisted launch
+request starts an installed application. These operations do not install
+packages, enable services, replace daemons, or persist notification history.
 
 ## Manual QA and limitations
 

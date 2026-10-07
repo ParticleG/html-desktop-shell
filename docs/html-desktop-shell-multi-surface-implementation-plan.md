@@ -14,6 +14,12 @@ This document expands the P3 contract in
 [`html-desktop-shell-feature-roadmap.md`](html-desktop-shell-feature-roadmap.md).
 The roadmap remains the priority source of truth.
 
+The P3 sections below record the completed Bridge v4 delivery. The approved
+desktop-capability extension at the end of this document defines the current
+Bridge v5 contract and supersedes v4 method/version descriptions. It does not
+change the four surface kinds, their geometry/input policies, local trust
+boundary, or original six method semantics.
+
 ## Goal
 
 Evolve the current one-Bar-per-monitor shell into a typed collection of
@@ -719,3 +725,248 @@ P3 is complete only when:
 - current-session compositor and manual gates pass;
 - README, roadmap, examples, and codemaps describe the delivered behavior without
   undated standing pass claims.
+
+## Desktop-capability extension — Bridge v5
+
+Approved on 2026-10-08, backend first. This extends the native shell with complete
+default-output audio control, standard tray/menu integration, a standard
+notification server with session history, and installed desktop application
+search/launch. The native host and public protocol are independent of Vue;
+`web/src/` is the replaceable reference UI, not the authority for business logic.
+The shell API contains no Vue or Pinia dependency.
+
+### Authorization and exact parameters
+
+Bridge version is `5`. Bar and Quick Panel expose all 20 exact methods. HUD keeps
+only `getHostInfo`/`getCapabilities`. Diagnostics keeps the four original methods,
+with close-only self authority and new provider availability/count summaries.
+
+All new params are JSON objects with exactly the named fields. Arrays, null,
+unknown fields, wrong numeric types, unsafe identifiers and unauthorized surfaces
+fail before privileged dispatch. Empty-object methods still require `{}`.
+
+| Native method | Exact params | Successful result |
+| --- | --- | --- |
+| `setAudioVolume` | `{volume}`: integer 0–100 | fresh `AudioState` |
+| `setAudioMuted` | `{muted}`: boolean | fresh `AudioState` |
+| `getTrayMenu` | `{itemId,menuItemId}`: opaque string / i32 | `{itemId,revision,root}` |
+| `activateTrayItem` | `{itemId}` | `{itemId}` |
+| `secondaryActivateTrayItem` | `{itemId}` | `{itemId}` |
+| `showTrayItemContextMenu` | `{itemId}` | `{itemId}` |
+| `scrollTrayItem` | `{itemId,delta,orientation}`: i32 / `horizontal` or `vertical` | `{itemId}` |
+| `activateTrayMenuItem` | `{itemId,menuItemId,revision}`: i32 / u32 | `{itemId,menuItemId,revision}` |
+| `getNotifications` | `{}` | `{items:NotificationItem[]}` |
+| `dismissNotification` | `{notificationId}`: nonzero u32 | notification-count state |
+| `invokeNotificationAction` | `{notificationId,actionKey}` | notification-count state |
+| `markAllNotificationsRead` | `{}` | notification-count state |
+| `searchApplications` | `{query,limit}`: at most 256 characters / integer 1–50 | `{items:DesktopApplication[]}` |
+| `launchApplication` | `{applicationId}` | `{applicationId}` |
+
+IDs are nonempty, NUL-free, at most 256 UTF-8 bytes, and must belong to the
+current native cache. Notification action keys instead match the server's
+256-character bound, including non-ASCII keys. A query may be empty but contains
+no NUL. No request supplies a command, argument, environment, filename, launch
+URI, bus name, object path, global coordinate, monitor or output.
+
+`NativeDispatch` separates immediate responses from typed `DesktopRequest`
+operations. `bridge.rs` resolves the caller's current native monitor, derives a
+screen point and GDK launch context, and returns asynchronous results only to a
+still-live, still-trusted receiving WebView. Failure never grants a fallback
+transport or operation.
+
+### Shared cached providers
+
+`ProviderRegistry` owns one controller for each new provider. Reads are
+cache-only; controllers perform slow work asynchronously on GIO workers or the
+GLib main context. Diagnostics serialization is provider-scoped: no tray item
+list, notification body/history or audio volume/mute data is constructed for its
+response.
+
+| Key | Available state | Unavailable state |
+| --- | --- | --- |
+| `audio` | `{available:true,volume:number,muted:boolean}` | `{available:false,reason}` |
+| `tray` | `{available:true,items:TrayItem[]}` | `{available:false,reason}` |
+| `notifications` | `{available:true,unreadCount,activeCount,historyCount}` | `{available:false,reason}` |
+| `applications` | `{available:true,count}` | `{available:false,reason}` |
+
+Diagnostics receives `{available:true}` for audio and `{available:true,count}`
+for tray; notification/application snapshots are already count-only. Provider
+failure reasons and action errors are sanitized, without raw native error
+details, command lines, private paths or environment values.
+
+Icons use `{width,height,rgba}`: base64 tightly packed, unpremultiplied RGBA8,
+with each dimension from 1 to 512 and bounded native input. Clients render
+pixels on canvas. No image URL, SVG markup, arbitrary theme path or remote
+resource is introduced; the existing CSP, local scheme and trust latch remain
+unchanged.
+
+### Audio
+
+Use fixed asynchronous `wpctl get-volume @DEFAULT_AUDIO_SINK@`,
+`set-volume ... <integer>%` and `set-mute ... 0|1`. A serialized lane covers
+periodic reads, writes and fresh post-write observation. An exit status alone
+does not report success. Poll every second, apply a five-second command deadline,
+cancel pending work on shutdown, terminate active children and reap them with an
+uncancellable wait.
+
+Readings retain amplification above 100%; only writes are capped at 100.
+Unavailable/malformed responses invalidate cached control state and later valid
+observations recover it. The bridge exposes no microphone or device-selection
+operation and no PulseAudio fallback. Default-output identity cannot be
+correlated across an external default-sink change because `wpctl get-volume`
+does not include a stable device ID; an observed mismatch fails the action.
+
+### Tray and DBusMenu
+
+Use `org.kde.StatusNotifierWatcher`/StatusNotifierHost/StatusNotifierItem.
+Register an additional host with the existing watcher; queue non-replacing
+watcher ownership for the absent/released-owner case. Never stop or replace the
+desktop's watcher. Bind opaque IDs to native-observed unique owners and paths,
+track registration/property/owner signals, and remove stale items and work.
+There is no XEmbed or X11 fallback.
+
+`TrayItem` contains `id,title,status,category,isMenu,hasMenu,tooltip,icon,
+attentionIcon,overlayIcon`; text is plain and icons contain pixels, not paths.
+`getTrayMenu` prepares root `0` or a cached enabled/visible submenu with
+`AboutToShow`, then fetches the complete root with `GetLayout(0,-1,[])`. Preserve
+the server's actual revision. Nodes contain `id,label,enabled,visible,type,
+toggleType,toggleState,icon,children,hasSubmenu`, including lazy submenus.
+Disabled, hidden, separator, submenu, unknown and stale clicks fail before
+`Event`. `LayoutUpdated` and `ItemsPropertiesUpdated` invalidate the cache even
+when the revision does not change.
+
+DBusMenu `label` is literal menu text: preserve angle brackets and entity-like
+strings such as `&lt;literal&gt;` and `&amp;value`, rather than parsing markup or
+decoding entities. Normalize underscore mnemonics, escaped underscores, and
+disallowed control characters within the text bound. SNI ToolTip markup
+normalization remains separate. The reference menu renders labels through text
+interpolation.
+
+Primary, secondary, context-menu and scroll operations are separate exact APIs.
+Native screen coordinates come from immutable caller monitor context, never
+browser input. The reference UI opens menus in Quick Panel, not a DOM overlay
+extending beyond the Bar's native surface.
+
+### Notifications
+
+Export `org.freedesktop.Notifications` at `/org/freedesktop/Notifications`, with
+`GetCapabilities`, `Notify`, `CloseNotification` and `GetServerInformation`.
+Request the name with `DO_NOT_QUEUE`, without replacement flags. An existing
+daemon leaves this provider explicitly unavailable; a deliberate service
+migration requires restarting the host. Do not read another daemon's private
+history, stop it, or introduce a daemon-specific adapter.
+
+Maintain at most 100 in-memory session records. Accept bounded literal text,
+urgency, resident hints, supported action pairs and safe icon pixels/theme names.
+No markup, URI launch, sound or persistence authority is granted. IDs are
+unique, nonzero u32; same-sender active replacement keeps its ID, foreign active
+replacement/close is rejected, and expired/unknown replacement requests get a
+new ID. Replacement generation guards prevent stale timers.
+
+`NotificationItem` contains `id,appName,summary,body,createdAt,active,read,urgency,
+icon,actions`; timestamps are epoch milliseconds and urgency is
+`low|normal|critical`. Zero expiry is sticky; `-1` uses five seconds, except
+critical default notifications remain sticky. Expiry/user dismissal/client close
+emit reasons 1/2/3. Action callbacks target the original unique sender;
+non-resident actions close the record while resident actions remain active and
+become read. Mark-read state is authoritative in the provider.
+
+Shutdown removes timers/objects/observers and releases only this connection's
+service ownership. It does not close the shared session-bus connection.
+
+### Installed applications
+
+Enumerate installed GIO desktop entries on a worker, transporting only owned
+metadata/IDs. `AppInfo` is not Send; create/cache authoritative
+`gio_unix::DesktopAppInfo` on GTK in yielded batches of eight and revalidate
+visibility/launchability. Exclude Hidden/NoDisplay/unavailable TryExec and entries
+with neither a nonempty native Exec nor `DBusActivatable=true`. Never parse or
+expose Exec.
+
+Search is localized, case-insensitive, all-token matching with deterministic
+name/ID/description ranking and bounded results. `DesktopApplication` contains
+`id,name,description,icon`; no filesystem, command or environment data is
+returned. Catalog monitor invalidation clears the allowlist and cancels pending
+launches until a fresh generation is ready. Removed IDs cannot be launched.
+
+Launch the cached native object with an empty URI list and native GDK
+`AppLaunchContext`. GIO owns Exec/DBus activation semantics. Errors are sanitized;
+stale callbacks and shutdown cannot republish retired work.
+
+### Backend verification — 2026-10-08
+
+- `cargo fmt`, Clippy with `-D warnings`, 124 Rust tests and locked native build
+  passed after integration.
+- A throwaway harness compiled the production dispatcher/registry/controllers,
+  without mock Bridge or provider implementations.
+- An isolated session bus verified notification replacement and foreign-owner
+  rejection, literal history, read state, Unicode/resident actions, real
+  `ActionInvoked`/expiry/dismiss/client-close signals and service release.
+- Real SNI/DBusMenu fixture objects verified standalone watcher registration,
+  native ARGB-to-RGBA pixels, lazy submenu preparation, disabled/stale rejection,
+  actual Activate/SecondaryActivate/ContextMenu/Scroll/Event calls and parameters,
+  existing-watcher coexistence and non-replacing release/takeover, property
+  updates, unique-owner disappearance and old-ID rejection.
+- Isolated installed desktop entries verified executable/DBusActivatable
+  inclusion, Hidden/NoDisplay/TryExec/missing-Exec exclusion, native launch with
+  a marker-writing executable, catalog removal/addition and rejected retired IDs.
+- The live desktop retained its existing watcher and notification daemon:
+  11 tray items were observed, notification ownership conflict was explicit,
+  and real audio was read/written at its unchanged 64%/unmuted state.
+- Temporary subprocess fault injection verified malformed/unavailable audio,
+  recovery through the real `wpctl`, five-second responsive deadline, killed-child
+  reaping, active/queued cancellation and idempotent shutdown.
+
+The hosted frontend checks below are separate from the backend results.
+Deliberate real-session notification-daemon migration was not performed: the
+existing service remains owned by the desktop.
+
+### Reference frontend and hosted verification — 2026-10-08
+
+- Bar renders default-output audio, tray icons/actions, and notification unread
+  counts. Quick Panel lazily mounts Audio, System tray, Notifications, and
+  Applications through PrimeVue tabs. Rust remains authoritative for provider
+  state, IDs, revisions, caller permissions, and launch authority.
+- `bun run typecheck`, the full 70-test Bun suite (13 files), and the production
+  build passed. After the WebKit input fix, typecheck, all 10 launcher tests, and
+  the production build passed again.
+- A throwaway binary compiled the production host, manager, WebKit trust hooks,
+  dispatcher, and provider modules. It loaded the actual built frontend through
+  `html-desktop-shell://assets/index.html`, not a mocked browser bridge.
+- On an isolated session bus, real SNI/DBusMenu objects verified canvas pixel
+  content, native caller-derived context-menu coordinates, disabled nodes,
+  stale-revision rejection with a visible error, refresh, and a real menu Event.
+- Real WirePlumber observation and a UI volume write reused the observed volume,
+  then checked fresh native state. No test intentionally changed user volume or
+  mute settings.
+- Standard Notify calls verified literal body rendering, native mark-read state,
+  sender-targeted ActionInvoked, resident activity, dismissal, and refreshed
+  history. A controlled installed entry was searched and launched through GIO,
+  with a marker file proving the actual executable ran.
+- Opening Diagnostics from Quick Panel closed the latter; Diagnostics exposed
+  summary-only audio/tray state and rejected notification-history access.
+  Host shutdown left no application windows.
+- Current-session hosted checks rendered real audio, tray items, installed
+  applications, notification ownership conflict, and Diagnostics reasons/counts.
+  The existing watcher and notification service retained their unique owners
+  before and after this read-only run; it launched no installed application.
+- Native snapshots were inspected. Dark Tabs keep readable text independently
+  of the system theme. The launcher's text input retains `role="searchbox"`:
+  WebKit's native `type="search"` decoration had requested a `data:` SVG and
+  revoked the per-view trust latch. The resource policy itself was not relaxed.
+- Viewport checks accounted for fractional-scale CSS-pixel rounding rather than
+  treating a one-pixel `innerWidth`/`scrollWidth` difference as layout overflow.
+- Final current-state checks passed the full 70-test Bun suite, typecheck/build,
+  `cargo fmt --check`, Clippy with `-D warnings`, 125 Rust tests, the locked native
+  build, exact capability printing, and startup checks on two monitors.
+- A DBusMenu label regression failed before the correction with deleted angle
+  brackets and decoded literal entities, then passed after separating label text
+  from SNI ToolTip markup handling. A further real DBus/hosted-WebKit run used
+  raw `<literal>`, `&lt;literal&gt;`, and `&amp;value`, verified the exact native
+  result and rendered Vue text, confirmed ToolTip markup still normalizes, and
+  observed the actual menu Event while the bridge remained trusted.
+
+These are dated checks, not standing pass claims. Accessibility-bus warnings
+were observed; accessibility health and the full compositor
+focus/geometry/hotplug/pointer-transparency matrix were not validated by these
+desktop-capability runs.

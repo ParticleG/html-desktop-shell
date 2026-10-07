@@ -2,13 +2,13 @@
 
 ## Responsibility
 
-This workspace package publishes the framework-independent Bridge v4 browser client as `@html-desktop-shell/shell-api`. It isolates WebKit request/reply details, runtime bootstrap validation, typed native snapshots, and exact operation wrappers from the Vue application. It owns no UI, Pinia state, polling, native authorization, or transport installation.
+This package publishes the framework-independent Bridge v5 client as `@html-desktop-shell/shell-api`. It owns typed snapshots, bootstrap validation, exact operation wrappers and WebKit request/reply handling, but no UI, Pinia state, polling, native authority or transport installation.
 
 ## Package contract
 
 - `package.json` declares an ESM package, version `0.1.0`, licensed `MIT OR Apache-2.0`, with the sole root export mapped directly to `./src/index.ts`.
 - There are no package-local runtime dependencies or subpath exports; the Bun/Vite workspace consumes the TypeScript source directly.
-- `src/index.ts` exports Bridge v4 `HostInfo`, the four discriminated `SurfaceContext` variants, the closed `ShellMethod` and `Capabilities` contracts, provider/snapshot types, reply/error types, validators, generic transport, and operation-specific wrappers.
+- `src/index.ts` exports v5 host/surface/capability/provider/result/error types, bootstrap validators and 20 exact named operations, including native audio/tray/notifications/applications.
 
 ## Design and flow
 
@@ -21,7 +21,7 @@ This workspace package publishes the framework-independent Bridge v4 browser cli
 ## Boundaries
 
 - Importing types is environment-neutral; invoking operations requires the host-injected WebKit handler. There is no HTTP, Node, Bun, or ordinary-browser fallback.
-- Generic `request()` remains a transport utility, not generic native authority. Native Bridge v4 method allowlists and parameter checks remain the security boundary.
+- Generic `request()` is transport only. Native Bridge v5 allowlists, strict params and cache-owned identities remain the security boundary.
 - See [`src/codemap.md`](src/codemap.md) for exact types, validators, wrappers, error behavior, and contract tests.
 
 ## Integration points
@@ -29,4 +29,4 @@ This workspace package publishes the framework-independent Bridge v4 browser cli
 - `web/package.json` registers `packages/*` and consumes this package via `workspace:*`.
 - `web/src/stores/shell.ts` calls its wrappers and owns reactive state/errors.
 - `web/src/view-model.ts`, `SurfaceRoot.vue`, views, widgets, and tests import protocol types.
-- Native Bridge v4 supplies the matching handler, scoped capabilities, exact operations, and response envelopes.
+- Native Bridge v5 supplies trusted transport, scoped capabilities, exact operations and structured asynchronous replies.

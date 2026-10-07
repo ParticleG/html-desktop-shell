@@ -2,28 +2,34 @@
 
 ## Responsibility
 
-This directory is the native state and compositor-event layer. It samples clock, host, battery, and network state; reduces one long-lived Niri event stream into an atomic cache; exposes the aggregate to the Bridge; performs the exact workspace-focus action; and publishes typed, compositor-confirmed workspace activations to `SurfaceManager` without granting a generic event or command channel.
+This directory is the native state, compositor-event and desktop-integration layer. It publishes shared cached state and exact typed operations without granting generic process, DBus, filesystem or session authority.
 
-- `mod.rs` defines `Provider`, the shared `ProviderRegistry`, clock/host providers, and the registry's snapshot, action, typed activation-observer, and shutdown facade.
+- `mod.rs` defines `Provider`, shared `ProviderRegistry`, clock/host providers, surface-scoped snapshots, typed desktop dispatch, workspace activation observers and idempotent shutdown.
 - `niri.rs` defines `WorkspaceActivation`, `WorkspaceActivationHandlerId`, `WorkspaceActivationObservers`, `NiriPublication`, `NiriController`, `NiriProvider`, `NiriReducer`, and the synchronous focus action.
 - `niri_collector.rs` owns `NiriCollector`, asynchronous GIO subprocess I/O/wait, generation retirement, reconnect backoff, `ActivationGate`, observer notification, and shutdown.
 - `system.rs` reads Linux sysfs to produce battery and network snapshots.
+- `desktop.rs` defines closed `DesktopRequest`, native `ScreenPoint` and `TrayOrientation`.
+- `audio.rs` serializes fixed asynchronous `wpctl` observations/writes with fresh confirmation, deadlines, unavailable/recovery and child reaping.
+- `tray.rs` owns standard SNI host/watcher integration, unique-owner-bound item caches, DBusMenu revisions/lazy submenus and exact asynchronous item/menu actions.
+- `notifications.rs` owns a non-stealing standard notification server, bounded session history, expiry/read/dismiss/actions and sender-targeted callbacks.
+- `applications.rs` enumerates installed GIO desktop entries, caches a visible/launchable allowlist, ranks searches and performs native asynchronous launch.
+- `icons.rs` supplies bounded native RGBA8 pixels from safe theme/GIcon, ARGB/RGB and PNG inputs without exposing paths or URLs.
 
-The aggregate state object has exactly `clock`, `host`, `niri`, `battery`, and `network` members.
+Production state has `clock`, `host`, `niri`, `battery`, `network`, `audio`, `tray`, `notifications` and `applications`. Diagnostics gets availability/count summaries for the new desktop providers, not application lists or audio controls.
 
 ## Design / Patterns
 
 ### Registry and shared ownership
 
-- `Provider` is the Strategy interface: `name()` supplies a top-level JSON key and `snapshot()` captures its current value.
-- `ProviderRegistry::new(&monitors)` creates `ClockProvider`, `HostProvider`, one shared `NiriController`/`NiriProvider`, `BatteryProvider`, and `NetworkProvider`. The strategy vector and controller are shared through `Rc`, so every typed surface uses the same provider set, publication, collector, and observer registry.
-- `snapshot()` iterates providers into a pre-sized JSON map. Clock, host, battery, and network sample synchronously; Niri only clones cached JSON and never starts or waits for IPC.
-- Registry methods deliberately expose only `focus_workspace()`, `connect_workspace_activation()`, `disconnect_workspace_activation()`, and `shutdown()` beyond snapshots. `WorkspaceActivationHandlerId` is a typed disconnect token rather than a raw callback/vector index.
+- `Provider` supplies `name()`, cached `snapshot()` and an overridable `diagnostic_snapshot()`; audio/tray avoid constructing private/full payloads for Diagnostics.
+- `ProviderRegistry::new(&monitors)` creates the existing providers and one shared controller for each desktop feature. `Rc` keeps state/resources shared across surfaces.
+- `snapshot_for(kind)` fills a pre-sized map. Desktop and Niri reads do not launch IPC or wait for processes; clock/host/sysfs providers retain their existing behavior.
+- `execute_desktop()` accepts only a typed closed operation and native point/launch context. Workspace observer tokens remain typed and disconnectable. Shutdown stops every controller once.
 
 ### Clock and host snapshots
 
 - `ClockProvider::snapshot()` emits `{ "time": "HH:MM:SS" }`; `current_time()` uses local GLib time and falls back to `"--:--:--"` if acquisition or formatting fails.
-- `HostProvider` retains the live GDK monitor `ListModel`. Each snapshot emits backend `"wayland-layer-shell"`, current `monitorCount`, and `messages::BRIDGE_VERSION` (4).
+- `HostProvider` retains the live GDK monitor `ListModel`. Each snapshot emits backend `"wayland-layer-shell"`, current `monitorCount`, and `messages::BRIDGE_VERSION` (5).
 
 ### Niri publication and reducer
 
@@ -57,6 +63,23 @@ The aggregate state object has exactly `clock`, `host`, `niri`, `battery`, and `
 - `battery_snapshot()` selects `type=Battery`, parses and clamps capacity, normalizes status, emits sorted devices, averages percentage, and aggregates status with precedence charging, discharging, all-full, not-charging, then unknown.
 - `network_snapshot()` excludes loopback, classifies wireless directories, Ethernet sysfs type `1`, or other devices, normalizes `operstate`, derives `isUp`, counts wired/wireless up/down state, and sorts by kind and name.
 - System providers do not cache: each aggregate snapshot reads current sysfs state.
+
+### Desktop integration
+
+The exact v5 contract and dated real-IPC verification are in the
+[implementation plan](../../docs/html-desktop-shell-multi-surface-implementation-plan.md#desktop-capability-extension--bridge-v5).
+Audio controls only the default output. Tray joins the current watcher or owns
+an absent/released name without replacement; menu preparation and clicks use
+native owner bindings and actual revision/visibility/enabled state. Notifications
+request only a free standard server name and keep at most 100 session records.
+Applications transport plain metadata across the GIO worker boundary and create
+authoritative `gio_unix::DesktopAppInfo` on GTK in yielded batches; no GObject
+is assumed Send. Catalog invalidation clears the launch allowlist until refresh.
+Asynchronous callbacks are weak/generation guarded and all resources are
+cancellable or explicitly reaped/released on shutdown.
+DBusMenu labels retain literal angle brackets and entity-like strings; only
+mnemonic/control-character normalization applies. SNI ToolTip markup is handled
+separately, and frontends render menu text without interpreting markup.
 
 ## Data & Control Flow
 
@@ -94,6 +117,6 @@ The aggregate state object has exactly `clock`, `host`, `niri`, `battery`, and `
 - **GTK/GDK:** `HostProvider` reads the live `gio::ListModel` from `gdk::Display::monitors()`.
 - **GLib/GIO:** clock formatting, event-stream subprocess pipes, asynchronous reads/wait, cancellation, reconnect timers, and main-context callbacks.
 - **Linux sysfs:** `system.rs` reads `/sys/class/power_supply` and `/sys/class/net`.
-- **Niri compositor:** one asynchronous `niri msg -j event-stream` process supplies reads; the exact synchronous `niri msg action focus-workspace <value>` process is the only write.
+- **Niri compositor:** one asynchronous `niri msg -j event-stream` process supplies reads; the exact synchronous focus-workspace subprocess remains the Niri write.
 - **Surface manager:** typed observer callbacks carry only confirmed `WorkspaceActivation`; manager shutdown disconnects its handler before provider shutdown.
-- **Native protocol:** `messages::BRIDGE_VERSION` appears in host snapshots and `NativeMethodError` carries exact workspace-action failures. The Bridge receives aggregate snapshots and focus callbacks, not generic provider or collector authority.
+- **Native protocol:** `messages::BRIDGE_VERSION` appears in host snapshots; `NativeDispatch`/`DesktopRequest` separate strict authorization/validation from cached or asynchronous provider execution. No generic native identity or command crosses this boundary.
