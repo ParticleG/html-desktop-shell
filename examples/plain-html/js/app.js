@@ -12,6 +12,9 @@ const app = document.getElementById("app");
 async function render() {
   try {
     const [hostInfo, capabilities] = await Promise.all([getHostInfo(), getCapabilities()]);
+    if (hostInfo.bridgeVersion !== 5) {
+      throw new Error("This frontend requires Bridge v5");
+    }
     const methods = new Set(capabilities.methods);
     const state = methods.has("getState") ? await getState() : null;
 

@@ -298,6 +298,38 @@ impl SurfaceManager {
         }
     }
 
+    pub(crate) fn desktop_context(
+        manager: &Rc<RefCell<Self>>,
+        caller: &SurfaceContext,
+    ) -> Result<
+        (
+            crate::providers::desktop::ScreenPoint,
+            gtk4::gio::AppLaunchContext,
+        ),
+        SurfaceError,
+    > {
+        let state = manager.borrow();
+        if !state.context_is_current(caller) {
+            return Err(SurfaceError::Unavailable {
+                monitor_index: caller.monitor_index(),
+            });
+        }
+        drop(state);
+        let binding = current_binding(manager, caller)?;
+        let geometry = binding.monitor.geometry();
+        let point = crate::providers::desktop::ScreenPoint {
+            x: geometry
+                .x()
+                .saturating_add(geometry.width())
+                .saturating_sub(16),
+            y: geometry
+                .y()
+                .saturating_add(manager.borrow().config.panel_height),
+        };
+        let context = binding.monitor.display().app_launch_context();
+        Ok((point, context.upcast()))
+    }
+
     pub fn set_quick_panel_open(
         manager: &Rc<RefCell<Self>>,
         caller: &SurfaceContext,

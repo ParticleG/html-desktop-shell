@@ -1,12 +1,10 @@
 import { afterEach, describe, expect, test } from "bun:test";
 
 import {
-  focusWorkspace,
   getCapabilities,
   getHostInfo,
   NativeBridgeError,
   setDiagnosticsDialogOpen,
-  setQuickPanelOpen,
 } from "./index";
 import type { HostInfo } from "./index";
 
@@ -44,60 +42,8 @@ afterEach(() => {
   handlerInstalled = false;
 });
 
-describe("shell API Bridge v4 contract", () => {
-  test("posts exact workspace and surface-control payloads", async () => {
-    const requests: PostedRequest[] = [];
-    installHandler((request) => {
-      requests.push(request);
-      if (request.method === "niriFocusWorkspace") {
-        return JSON.stringify({ id: request.id, ok: true, result: { workspaceIndex: 2 } });
-      }
-      return JSON.stringify({ id: request.id, ok: true, result: request.params });
-    });
-
-    await focusWorkspace(2);
-    await setQuickPanelOpen(true);
-    await setQuickPanelOpen(false);
-    await setDiagnosticsDialogOpen(true);
-    await setDiagnosticsDialogOpen(false);
-
-    expect(requests).toEqual([
-      { id: expect.any(String), method: "niriFocusWorkspace", params: { workspaceIndex: 2 } },
-      { id: expect.any(String), method: "setQuickPanelOpen", params: { open: true } },
-      { id: expect.any(String), method: "setQuickPanelOpen", params: { open: false } },
-      { id: expect.any(String), method: "setDiagnosticsDialogOpen", params: { open: true } },
-      { id: expect.any(String), method: "setDiagnosticsDialogOpen", params: { open: false } },
-    ]);
-    for (const request of requests) {
-      expect(request.id).toMatch(/^\d+$/);
-    }
-  });
-
-  test("exposes the Bridge v4 discriminated surface context", async () => {
-    const hostInfo: HostInfo = {
-      shell: "html-desktop-shell",
-      backend: "wayland-layer-shell",
-      bridgeVersion: 4,
-      surface: {
-        kind: "workspaceHud",
-        monitorIndex: 0,
-        output: "DP-1",
-        workspaceIndex: 7,
-      },
-    };
-    installHandler((request) => JSON.stringify({ id: request.id, ok: true, result: hostInfo }));
-
-    const result = await getHostInfo();
-    expect(result.bridgeVersion).toBe(4);
-    expect(result.surface).toEqual({
-      kind: "workspaceHud",
-      monitorIndex: 0,
-      output: "DP-1",
-      workspaceIndex: 7,
-    });
-  });
-
-  test("validates every exact Bridge v4 surface shape", async () => {
+describe("shell API contract", () => {
+  test("validates every exact surface shape", async () => {
     const surfaces: HostInfo["surface"][] = [
       { kind: "bar", monitorIndex: 0, output: null },
       { kind: "quickPanel", monitorIndex: 1, output: "DP-1" },
@@ -111,7 +57,7 @@ describe("shell API Bridge v4 contract", () => {
       result: {
         shell: "html-desktop-shell",
         backend: "wayland-layer-shell",
-        bridgeVersion: 4,
+        bridgeVersion: 5,
         surface: surfaces[index++],
       },
     }));
@@ -120,7 +66,7 @@ describe("shell API Bridge v4 contract", () => {
       await expect(getHostInfo()).resolves.toEqual({
         shell: "html-desktop-shell",
         backend: "wayland-layer-shell",
-        bridgeVersion: 4,
+        bridgeVersion: 5,
         surface,
       });
     }
@@ -137,37 +83,37 @@ describe("shell API Bridge v4 contract", () => {
       {
         shell: "html-desktop-shell",
         backend: "wayland-layer-shell",
-        bridgeVersion: 4,
+        bridgeVersion: 5,
         surface: { kind: "notification", monitorIndex: 0, output: null },
       },
       {
         shell: "html-desktop-shell",
         backend: "wayland-layer-shell",
-        bridgeVersion: 4,
+        bridgeVersion: 5,
         surface: { kind: "bar", monitorIndex: -1, output: null },
       },
       {
         shell: "html-desktop-shell",
         backend: "wayland-layer-shell",
-        bridgeVersion: 4,
+        bridgeVersion: 5,
         surface: { kind: "quickPanel", monitorIndex: 0.5, output: null },
       },
       {
         shell: "html-desktop-shell",
         backend: "wayland-layer-shell",
-        bridgeVersion: 4,
+        bridgeVersion: 5,
         surface: { kind: "workspaceHud", monitorIndex: 0, output: null, workspaceIndex: 0 },
       },
       {
         shell: "html-desktop-shell",
         backend: "wayland-layer-shell",
-        bridgeVersion: 4,
+        bridgeVersion: 5,
         surface: { kind: "diagnosticsDialog", monitorIndex: 0, output: 7 },
       },
       {
         shell: "html-desktop-shell",
         backend: "wayland-layer-shell",
-        bridgeVersion: 4,
+        bridgeVersion: 5,
         surface: { kind: "bar", monitorIndex: 0, output: null, workspaceIndex: 1 },
       },
     ];

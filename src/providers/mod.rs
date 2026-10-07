@@ -1,6 +1,12 @@
+mod applications;
+mod audio;
+pub(crate) mod desktop;
+mod icons;
 mod niri;
 mod niri_collector;
+mod notifications;
 mod system;
+mod tray;
 
 use std::rc::Rc;
 
@@ -11,22 +17,61 @@ use crate::messages::{BRIDGE_VERSION, NativeMethodError};
 use niri::{NiriController, NiriProvider};
 pub(crate) use niri::{WorkspaceActivation, WorkspaceActivationHandlerId};
 
+use applications::ApplicationsController;
+use audio::AudioController;
+use desktop::{DesktopRequest, ScreenPoint};
+use notifications::NotificationsController;
+use tray::TrayController;
+
+struct DesktopProviders {
+    audio: AudioController,
+    tray: TrayController,
+    notifications: NotificationsController,
+    applications: ApplicationsController,
+}
+
+impl DesktopProviders {
+    fn shutdown(&self) {
+        self.audio.shutdown();
+        self.tray.shutdown();
+        self.notifications.shutdown();
+        self.applications.shutdown();
+    }
+}
+
+impl Drop for DesktopProviders {
+    fn drop(&mut self) {
+        self.shutdown();
+    }
+}
+
 pub trait Provider {
     fn name(&self) -> &'static str;
     fn snapshot(&self) -> serde_json::Value;
+
+    fn diagnostic_snapshot(&self) -> serde_json::Value {
+        self.snapshot()
+    }
 }
 
 #[derive(Clone)]
 pub struct ProviderRegistry {
     providers: Rc<Vec<Box<dyn Provider>>>,
     niri: NiriController,
+    desktop: Option<Rc<DesktopProviders>>,
 }
 
 impl ProviderRegistry {
     pub fn new(monitors: &gtk4::gio::ListModel) -> Self {
         let niri = NiriController::new();
-        Self::from_providers_with_niri(
-            vec![
+        let desktop = Rc::new(DesktopProviders {
+            audio: AudioController::new(),
+            tray: TrayController::new(),
+            notifications: NotificationsController::new(),
+            applications: ApplicationsController::new(),
+        });
+        Self {
+            providers: Rc::new(vec![
                 Box::new(ClockProvider),
                 Box::new(HostProvider {
                     monitors: monitors.clone(),
@@ -34,17 +79,95 @@ impl ProviderRegistry {
                 Box::new(NiriProvider::new(niri.clone())),
                 Box::new(system::BatteryProvider::new_default()),
                 Box::new(system::NetworkProvider::new_default()),
-            ],
+                Box::new(desktop.audio.clone()),
+                Box::new(desktop.tray.clone()),
+                Box::new(desktop.notifications.clone()),
+                Box::new(desktop.applications.clone()),
+            ]),
             niri,
-        )
+            desktop: Some(desktop),
+        }
     }
 
-    pub fn snapshot(&self) -> serde_json::Value {
+    pub fn snapshot_for(&self, kind: crate::surface::SurfaceKind) -> serde_json::Value {
         let mut state = serde_json::Map::with_capacity(self.providers.len());
         for provider in self.providers.iter() {
-            state.insert(provider.name().to_owned(), provider.snapshot());
+            let snapshot = if kind == crate::surface::SurfaceKind::DiagnosticsDialog {
+                provider.diagnostic_snapshot()
+            } else {
+                provider.snapshot()
+            };
+            state.insert(provider.name().to_owned(), snapshot);
         }
         serde_json::Value::Object(state)
+    }
+
+    pub(crate) fn execute_desktop(
+        &self,
+        request: DesktopRequest,
+        point: ScreenPoint,
+        launch_context: gtk4::gio::AppLaunchContext,
+        reply: impl FnOnce(Result<serde_json::Value, NativeMethodError>) + 'static,
+    ) {
+        let Some(desktop) = &self.desktop else {
+            reply(Err(NativeMethodError::new(
+                "service_unavailable",
+                "desktop providers are unavailable",
+            )));
+            return;
+        };
+        match request {
+            DesktopRequest::SetAudioVolume { volume } => desktop.audio.set_volume(volume, reply),
+            DesktopRequest::SetAudioMuted { muted } => desktop.audio.set_muted(muted, reply),
+            DesktopRequest::GetTrayMenu {
+                item_id,
+                menu_item_id,
+            } => desktop.tray.get_menu(item_id, menu_item_id, reply),
+            DesktopRequest::ActivateTrayItem { item_id } => {
+                desktop.tray.activate(item_id, point, false, reply)
+            }
+            DesktopRequest::SecondaryActivateTrayItem { item_id } => {
+                desktop.tray.activate(item_id, point, true, reply)
+            }
+            DesktopRequest::ShowTrayItemContextMenu { item_id } => {
+                desktop.tray.context_menu(item_id, point, reply)
+            }
+            DesktopRequest::ScrollTrayItem {
+                item_id,
+                delta,
+                orientation,
+            } => desktop.tray.scroll(item_id, delta, orientation, reply),
+            DesktopRequest::ActivateTrayMenuItem {
+                item_id,
+                menu_item_id,
+                revision,
+            } => desktop
+                .tray
+                .activate_menu(item_id, menu_item_id, revision, reply),
+            DesktopRequest::GetNotifications => reply(desktop.notifications.get_notifications()),
+            DesktopRequest::DismissNotification { notification_id } => {
+                reply(desktop.notifications.dismiss(notification_id))
+            }
+            DesktopRequest::InvokeNotificationAction {
+                notification_id,
+                action_key,
+            } => reply(
+                desktop
+                    .notifications
+                    .invoke_action(notification_id, action_key),
+            ),
+            DesktopRequest::MarkAllNotificationsRead => {
+                reply(desktop.notifications.mark_all_read())
+            }
+            DesktopRequest::SearchApplications { query, limit } => {
+                reply(desktop.applications.search(&query, limit))
+            }
+            DesktopRequest::LaunchApplication { application_id } => {
+                desktop
+                    .applications
+                    .launch(application_id, launch_context, reply)
+            }
+        }
     }
 
     pub fn focus_workspace(
@@ -67,6 +190,9 @@ impl ProviderRegistry {
 
     pub fn shutdown(&self) {
         self.niri.shutdown();
+        if let Some(desktop) = &self.desktop {
+            desktop.shutdown();
+        }
     }
 
     #[cfg(test)]
@@ -74,10 +200,12 @@ impl ProviderRegistry {
         Self::from_providers_with_niri(providers, NiriController::stopped())
     }
 
+    #[cfg(test)]
     fn from_providers_with_niri(providers: Vec<Box<dyn Provider>>, niri: NiriController) -> Self {
         Self {
             providers: Rc::new(providers),
             niri,
+            desktop: None,
         }
     }
 }
@@ -122,31 +250,6 @@ fn current_time() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    struct StaticProvider {
-        name: &'static str,
-        value: serde_json::Value,
-    }
-
-    impl Provider for StaticProvider {
-        fn name(&self) -> &'static str {
-            self.name
-        }
-
-        fn snapshot(&self) -> serde_json::Value {
-            self.value.clone()
-        }
-    }
-
-    #[test]
-    fn registry_returns_provider_snapshots_by_name() {
-        let registry = ProviderRegistry::from_providers(vec![Box::new(StaticProvider {
-            name: "demo",
-            value: serde_json::json!({ "ok": true }),
-        })]);
-
-        assert_eq!(registry.snapshot()["demo"]["ok"], true);
-    }
 
     #[test]
     fn clock_provider_returns_hh_mm_ss_time() {

@@ -41,3 +41,59 @@ export function setQuickPanelOpen(open) {
 export function setDiagnosticsDialogOpen(open) {
   return request("setDiagnosticsDialogOpen", { open });
 }
+
+export function setAudioVolume(volume) {
+  return request("setAudioVolume", { volume });
+}
+
+export function setAudioMuted(muted) {
+  return request("setAudioMuted", { muted });
+}
+
+export function getTrayMenu(itemId, menuItemId = 0) {
+  return request("getTrayMenu", { itemId, menuItemId });
+}
+
+export function activateTrayItem(itemId) {
+  return request("activateTrayItem", { itemId });
+}
+
+export function secondaryActivateTrayItem(itemId) {
+  return request("secondaryActivateTrayItem", { itemId });
+}
+
+export function showTrayItemContextMenu(itemId) {
+  return request("showTrayItemContextMenu", { itemId });
+}
+
+export function scrollTrayItem(itemId, delta, orientation) {
+  return request("scrollTrayItem", { itemId, delta, orientation });
+}
+
+export function activateTrayMenuItem(itemId, menuItemId, revision) {
+  return request("activateTrayMenuItem", { itemId, menuItemId, revision });
+}
+
+export function getNotifications() {
+  return request("getNotifications", {});
+}
+
+export function dismissNotification(notificationId) {
+  return request("dismissNotification", { notificationId });
+}
+
+export function invokeNotificationAction(notificationId, actionKey) {
+  return request("invokeNotificationAction", { notificationId, actionKey });
+}
+
+export function markAllNotificationsRead() {
+  return request("markAllNotificationsRead", {});
+}
+
+export function searchApplications(query, limit = 25) {
+  return request("searchApplications", { query, limit });
+}
+
+export function launchApplication(applicationId) {
+  return request("launchApplication", { applicationId });
+}

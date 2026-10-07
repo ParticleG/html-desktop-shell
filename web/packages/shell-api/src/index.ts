@@ -34,7 +34,7 @@ export interface DiagnosticsDialogSurfaceContext {
 export interface HostInfo {
   shell: "html-desktop-shell";
   backend: "wayland-layer-shell";
-  bridgeVersion: 4;
+  bridgeVersion: 5;
   surface: SurfaceContext;
 }
 
@@ -44,7 +44,21 @@ export type ShellMethod =
   | "getState"
   | "niriFocusWorkspace"
   | "setQuickPanelOpen"
-  | "setDiagnosticsDialogOpen";
+  | "setDiagnosticsDialogOpen"
+  | "setAudioVolume"
+  | "setAudioMuted"
+  | "getTrayMenu"
+  | "activateTrayItem"
+  | "secondaryActivateTrayItem"
+  | "showTrayItemContextMenu"
+  | "scrollTrayItem"
+  | "activateTrayMenuItem"
+  | "getNotifications"
+  | "dismissNotification"
+  | "invokeNotificationAction"
+  | "markAllNotificationsRead"
+  | "searchApplications"
+  | "launchApplication";
 
 export interface Capabilities {
   methods: ShellMethod[];
@@ -57,6 +71,20 @@ const SHELL_METHODS: Record<ShellMethod, true> = {
   niriFocusWorkspace: true,
   setQuickPanelOpen: true,
   setDiagnosticsDialogOpen: true,
+  setAudioVolume: true,
+  setAudioMuted: true,
+  getTrayMenu: true,
+  activateTrayItem: true,
+  secondaryActivateTrayItem: true,
+  showTrayItemContextMenu: true,
+  scrollTrayItem: true,
+  activateTrayMenuItem: true,
+  getNotifications: true,
+  dismissNotification: true,
+  invokeNotificationAction: true,
+  markAllNotificationsRead: true,
+  searchApplications: true,
+  launchApplication: true,
 };
 
 const U32_MAX = 0xffff_ffff;
@@ -69,8 +97,8 @@ export function validateHostInfo(value: unknown): HostInfo {
   if (hostInfo.backend !== "wayland-layer-shell") {
     throw invalidResult('HostInfo.backend must equal "wayland-layer-shell"');
   }
-  if (hostInfo.bridgeVersion !== 4) {
-    throw invalidResult("HostInfo.bridgeVersion must equal 4");
+  if (hostInfo.bridgeVersion !== 5) {
+    throw invalidResult("HostInfo.bridgeVersion must equal 5");
   }
 
   return {
@@ -174,6 +202,10 @@ export interface ShellState {
   niri?: NiriState;
   battery?: BatteryState;
   network?: NetworkState;
+  audio?: AudioState | { available: true };
+  tray?: TrayState;
+  notifications?: NotificationsState;
+  applications?: ApplicationsState;
 }
 
 export interface NiriState {
@@ -255,6 +287,95 @@ export interface NetworkInterfaceState {
   isUp?: boolean;
 }
 
+export interface ShellIcon {
+  width: number;
+  height: number;
+  /** Base64-encoded, tightly packed, unpremultiplied RGBA8 pixels. */
+  rgba: string;
+}
+
+export interface UnavailableProvider {
+  available: false;
+  reason: string;
+}
+
+export type AudioState = UnavailableProvider | {
+  available: true;
+  volume: number;
+  muted: boolean;
+};
+
+export interface TrayItem {
+  id: string;
+  title: string;
+  status: string;
+  category: string;
+  isMenu: boolean;
+  hasMenu: boolean;
+  tooltip: string;
+  icon: ShellIcon | null;
+  attentionIcon: ShellIcon | null;
+  overlayIcon: ShellIcon | null;
+}
+
+export type TrayState = UnavailableProvider | {
+  available: true;
+  items?: TrayItem[];
+  /** Diagnostics receives count-only tray state. */
+  count?: number;
+};
+
+export interface TrayMenuNode {
+  id: number;
+  label: string;
+  enabled: boolean;
+  visible: boolean;
+  type: string;
+  toggleType: string | null;
+  toggleState: number;
+  icon: ShellIcon | null;
+  children: TrayMenuNode[];
+  hasSubmenu: boolean;
+}
+
+export interface TrayMenu {
+  itemId: string;
+  revision: number;
+  root: TrayMenuNode;
+}
+
+export type NotificationsState = UnavailableProvider | {
+  available: true;
+  unreadCount: number;
+  activeCount: number;
+  historyCount: number;
+};
+
+export interface NotificationItem {
+  id: number;
+  appName: string;
+  summary: string;
+  body: string;
+  createdAt: number;
+  active: boolean;
+  read: boolean;
+  urgency: "low" | "normal" | "critical";
+  icon: ShellIcon | null;
+  actions: Array<{ key: string; label: string }>;
+}
+
+export interface DesktopApplication {
+  id: string;
+  name: string;
+  description: string | null;
+  icon: ShellIcon | null;
+}
+
+export type ApplicationsState = UnavailableProvider | {
+  available: true;
+  count: number;
+};
+
 export interface NativeResponse<T> {
   id: string;
   ok: boolean;
@@ -334,4 +455,74 @@ export function setQuickPanelOpen(open: boolean): Promise<{ open: boolean }> {
 
 export function setDiagnosticsDialogOpen(open: boolean): Promise<{ open: boolean }> {
   return request("setDiagnosticsDialogOpen", { open });
+}
+
+export function setAudioVolume(volume: number): Promise<AudioState> {
+  return request("setAudioVolume", { volume });
+}
+
+export function setAudioMuted(muted: boolean): Promise<AudioState> {
+  return request("setAudioMuted", { muted });
+}
+
+export function getTrayMenu(itemId: string, menuItemId = 0): Promise<TrayMenu> {
+  return request("getTrayMenu", { itemId, menuItemId });
+}
+
+export function activateTrayItem(itemId: string): Promise<{ itemId: string }> {
+  return request("activateTrayItem", { itemId });
+}
+
+export function secondaryActivateTrayItem(itemId: string): Promise<{ itemId: string }> {
+  return request("secondaryActivateTrayItem", { itemId });
+}
+
+export function showTrayItemContextMenu(itemId: string): Promise<{ itemId: string }> {
+  return request("showTrayItemContextMenu", { itemId });
+}
+
+export function scrollTrayItem(
+  itemId: string,
+  delta: number,
+  orientation: "horizontal" | "vertical",
+): Promise<{ itemId: string }> {
+  return request("scrollTrayItem", { itemId, delta, orientation });
+}
+
+export function activateTrayMenuItem(
+  itemId: string,
+  menuItemId: number,
+  revision: number,
+): Promise<{ itemId: string; menuItemId: number; revision: number }> {
+  return request("activateTrayMenuItem", { itemId, menuItemId, revision });
+}
+
+export function getNotifications(): Promise<{ items: NotificationItem[] }> {
+  return request("getNotifications", {});
+}
+
+export function dismissNotification(notificationId: number): Promise<NotificationsState> {
+  return request("dismissNotification", { notificationId });
+}
+
+export function invokeNotificationAction(
+  notificationId: number,
+  actionKey: string,
+): Promise<NotificationsState> {
+  return request("invokeNotificationAction", { notificationId, actionKey });
+}
+
+export function markAllNotificationsRead(): Promise<NotificationsState> {
+  return request("markAllNotificationsRead", {});
+}
+
+export function searchApplications(
+  query: string,
+  limit = 25,
+): Promise<{ items: DesktopApplication[] }> {
+  return request("searchApplications", { query, limit });
+}
+
+export function launchApplication(applicationId: string): Promise<{ applicationId: string }> {
+  return request("launchApplication", { applicationId });
 }

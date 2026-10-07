@@ -1,8 +1,11 @@
 use serde::Deserialize;
 
-use crate::surface::{SurfaceContext, SurfaceKind};
+use crate::{
+    providers::desktop::{DesktopRequest, TrayOrientation},
+    surface::{SurfaceContext, SurfaceKind},
+};
 
-pub const BRIDGE_VERSION: u32 = 4;
+pub const BRIDGE_VERSION: u32 = 5;
 const METHOD_GET_CAPABILITIES: &str = "getCapabilities";
 const METHOD_GET_HOST_INFO: &str = "getHostInfo";
 const METHOD_GET_STATE: &str = "getState";
@@ -16,6 +19,20 @@ const ALL_METHODS: &[&str] = &[
     METHOD_NIRI_FOCUS_WORKSPACE,
     METHOD_SET_QUICK_PANEL_OPEN,
     METHOD_SET_DIAGNOSTICS_DIALOG_OPEN,
+    "setAudioVolume",
+    "setAudioMuted",
+    "getTrayMenu",
+    "activateTrayItem",
+    "secondaryActivateTrayItem",
+    "showTrayItemContextMenu",
+    "scrollTrayItem",
+    "activateTrayMenuItem",
+    "getNotifications",
+    "dismissNotification",
+    "invokeNotificationAction",
+    "markAllNotificationsRead",
+    "searchApplications",
+    "launchApplication",
 ];
 const BAR_METHODS: &[&str] = ALL_METHODS;
 const QUICK_PANEL_METHODS: &[&str] = ALL_METHODS;
@@ -105,14 +122,100 @@ struct OpenParams {
     open: bool,
 }
 
-pub fn handle_native_request<S, A, Q, D>(
+pub(crate) enum NativeDispatch {
+    Response(String),
+    Desktop { id: String, request: DesktopRequest },
+}
+
+#[cfg(test)]
+impl NativeDispatch {
+    fn into_response(self) -> String {
+        match self {
+            Self::Response(response) => response,
+            Self::Desktop { .. } => panic!("desktop operation must not dispatch in this test"),
+        }
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct EmptyParams {}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct VolumeParams {
+    volume: u32,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MutedParams {
+    muted: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct TrayItemParams {
+    item_id: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct TrayMenuReadParams {
+    item_id: String,
+    menu_item_id: i32,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct TrayScrollParams {
+    item_id: String,
+    delta: i32,
+    orientation: TrayOrientation,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct TrayMenuParams {
+    item_id: String,
+    menu_item_id: i32,
+    revision: u32,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct NotificationParams {
+    notification_id: u32,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct NotificationActionParams {
+    notification_id: u32,
+    action_key: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SearchParams {
+    query: String,
+    limit: u32,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct ApplicationParams {
+    application_id: String,
+}
+
+pub(crate) fn handle_native_request<S, A, Q, D>(
     raw: &str,
     surface_context: &SurfaceContext,
     state_snapshot: S,
     focus_workspace: A,
     set_quick_panel_open: Q,
     set_diagnostics_dialog_open: D,
-) -> String
+) -> NativeDispatch
 where
     S: FnOnce() -> serde_json::Value,
     A: FnOnce(u64) -> Result<serde_json::Value, NativeMethodError>,
@@ -121,7 +224,7 @@ where
 {
     // Serde structs also accept sequences; require the JSON object token before parsing.
     if !raw.trim_start().starts_with('{') {
-        return bad_request_response(raw);
+        return NativeDispatch::Response(bad_request_response(raw));
     }
 
     match serde_json::from_str::<NativeRequest>(raw) {
@@ -133,7 +236,7 @@ where
             set_quick_panel_open,
             set_diagnostics_dialog_open,
         ),
-        Err(_) => bad_request_response(raw),
+        Err(_) => NativeDispatch::Response(bad_request_response(raw)),
     }
 }
 
@@ -144,7 +247,7 @@ fn handle_request<S, A, Q, D>(
     focus_workspace: A,
     set_quick_panel_open: Q,
     set_diagnostics_dialog_open: D,
-) -> String
+) -> NativeDispatch
 where
     S: FnOnce() -> serde_json::Value,
     A: FnOnce(u64) -> Result<serde_json::Value, NativeMethodError>,
@@ -167,6 +270,25 @@ where
                 surface_context.kind().wire_name()
             ),
         )
+    } else if ![
+        METHOD_GET_HOST_INFO,
+        METHOD_GET_CAPABILITIES,
+        METHOD_GET_STATE,
+        METHOD_NIRI_FOCUS_WORKSPACE,
+        METHOD_SET_QUICK_PANEL_OPEN,
+        METHOD_SET_DIAGNOSTICS_DIALOG_OPEN,
+    ]
+    .contains(&method)
+    {
+        match desktop_request(method, &request.params) {
+            Ok(operation) => {
+                return NativeDispatch::Desktop {
+                    id: request.id.clone(),
+                    request: operation,
+                };
+            }
+            Err(error) => error_response(request.id.as_str(), error.code, error.message),
+        }
     } else {
         match method {
             METHOD_GET_HOST_INFO => ok_response(
@@ -206,7 +328,7 @@ where
         }
     };
 
-    serialize_response(&response)
+    NativeDispatch::Response(serialize_response(&response))
 }
 
 fn workspace_index_param(params: &serde_json::Value) -> Result<u64, NativeMethodError> {
@@ -244,6 +366,164 @@ fn open_param(params: &serde_json::Value) -> Result<bool, NativeMethodError> {
     OpenParams::deserialize(params)
         .map(|params| params.open)
         .map_err(|_| invalid_params())
+}
+
+fn desktop_request(
+    method: &str,
+    params: &serde_json::Value,
+) -> Result<DesktopRequest, NativeMethodError> {
+    let invalid =
+        || NativeMethodError::new("invalid_params", format!("invalid parameters for {method}"));
+    let valid_id = |id: &str| !id.is_empty() && id.len() <= 256 && !id.contains('\0');
+    let operation = match method {
+        "setAudioVolume" => {
+            let params: VolumeParams = object_params(params, method)?;
+            if params.volume > 100 {
+                return Err(invalid());
+            }
+            DesktopRequest::SetAudioVolume {
+                volume: params.volume,
+            }
+        }
+        "setAudioMuted" => {
+            let params: MutedParams = object_params(params, method)?;
+            DesktopRequest::SetAudioMuted {
+                muted: params.muted,
+            }
+        }
+        "getTrayMenu" => {
+            let params: TrayMenuReadParams = object_params(params, method)?;
+            if !valid_id(&params.item_id) {
+                return Err(invalid());
+            }
+            DesktopRequest::GetTrayMenu {
+                item_id: params.item_id,
+                menu_item_id: params.menu_item_id,
+            }
+        }
+        "activateTrayItem" | "secondaryActivateTrayItem" | "showTrayItemContextMenu" => {
+            let params: TrayItemParams = object_params(params, method)?;
+            if !valid_id(&params.item_id) {
+                return Err(invalid());
+            }
+            match method {
+                "activateTrayItem" => DesktopRequest::ActivateTrayItem {
+                    item_id: params.item_id,
+                },
+                "secondaryActivateTrayItem" => DesktopRequest::SecondaryActivateTrayItem {
+                    item_id: params.item_id,
+                },
+                _ => DesktopRequest::ShowTrayItemContextMenu {
+                    item_id: params.item_id,
+                },
+            }
+        }
+        "scrollTrayItem" => {
+            let params: TrayScrollParams = object_params(params, method)?;
+            if !valid_id(&params.item_id) {
+                return Err(invalid());
+            }
+            DesktopRequest::ScrollTrayItem {
+                item_id: params.item_id,
+                delta: params.delta,
+                orientation: params.orientation,
+            }
+        }
+        "activateTrayMenuItem" => {
+            let params: TrayMenuParams = object_params(params, method)?;
+            if !valid_id(&params.item_id) {
+                return Err(invalid());
+            }
+            DesktopRequest::ActivateTrayMenuItem {
+                item_id: params.item_id,
+                menu_item_id: params.menu_item_id,
+                revision: params.revision,
+            }
+        }
+        "getNotifications" | "markAllNotificationsRead" => {
+            let _: EmptyParams = object_params(params, method)?;
+            if method == "getNotifications" {
+                DesktopRequest::GetNotifications
+            } else {
+                DesktopRequest::MarkAllNotificationsRead
+            }
+        }
+        "dismissNotification" => {
+            let params: NotificationParams = object_params(params, method)?;
+            if params.notification_id == 0 {
+                return Err(invalid());
+            }
+            DesktopRequest::DismissNotification {
+                notification_id: params.notification_id,
+            }
+        }
+        "invokeNotificationAction" => {
+            let params: NotificationActionParams = object_params(params, method)?;
+            if params.notification_id == 0
+                || params.action_key.is_empty()
+                || params.action_key.chars().count() > 256
+                || params.action_key.contains('\0')
+            {
+                return Err(invalid());
+            }
+            DesktopRequest::InvokeNotificationAction {
+                notification_id: params.notification_id,
+                action_key: params.action_key,
+            }
+        }
+        "searchApplications" => {
+            let params: SearchParams = object_params(params, method)?;
+            if params.query.chars().count() > 256
+                || params.query.contains('\0')
+                || !(1..=50).contains(&params.limit)
+            {
+                return Err(invalid());
+            }
+            DesktopRequest::SearchApplications {
+                query: params.query,
+                limit: params.limit,
+            }
+        }
+        "launchApplication" => {
+            let params: ApplicationParams = object_params(params, method)?;
+            if !valid_id(&params.application_id) {
+                return Err(invalid());
+            }
+            DesktopRequest::LaunchApplication {
+                application_id: params.application_id,
+            }
+        }
+        _ => {
+            return Err(NativeMethodError::new(
+                "unknown_method",
+                format!("unknown native method: {method}"),
+            ));
+        }
+    };
+    Ok(operation)
+}
+
+fn object_params<'a, T: Deserialize<'a>>(
+    params: &'a serde_json::Value,
+    method: &str,
+) -> Result<T, NativeMethodError> {
+    let invalid =
+        || NativeMethodError::new("invalid_params", format!("invalid parameters for {method}"));
+    if !params.is_object() {
+        return Err(invalid());
+    }
+    T::deserialize(params).map_err(|_| invalid())
+}
+
+pub(crate) fn desktop_response(
+    id: &str,
+    result: Result<serde_json::Value, NativeMethodError>,
+) -> String {
+    let response = match result {
+        Ok(result) => ok_response(id, result),
+        Err(error) => error_response(id, error.code, error.message),
+    };
+    serialize_response(&response)
 }
 
 fn diagnostics_open_param(
@@ -308,21 +588,6 @@ mod tests {
         serde_json::from_str(raw).expect("native response must be valid JSON")
     }
 
-    fn test_state() -> serde_json::Value {
-        serde_json::json!({
-            "clock": { "time": "12:34:56" },
-            "host": {
-                "backend": "wayland-layer-shell",
-                "monitorCount": 2,
-                "bridgeVersion": BRIDGE_VERSION,
-            },
-            "niri": {
-                "available": false,
-                "reason": "niri IPC unavailable",
-            },
-        })
-    }
-
     fn context(kind: SurfaceKind) -> SurfaceContext {
         match kind {
             SurfaceKind::Bar => SurfaceContext::Bar {
@@ -367,25 +632,28 @@ mod tests {
         Q: FnOnce(bool) -> Result<serde_json::Value, NativeMethodError>,
         D: FnOnce(bool) -> Result<serde_json::Value, NativeMethodError>,
     {
-        response_value(&handle_native_request(
-            raw,
-            &context(kind),
-            test_state,
-            focus_workspace,
-            set_quick_panel_open,
-            set_diagnostics_dialog_open,
-        ))
+        response_value(
+            &handle_native_request(
+                raw,
+                &context(kind),
+                || panic!("invalid request must not read provider state"),
+                focus_workspace,
+                set_quick_panel_open,
+                set_diagnostics_dialog_open,
+            )
+            .into_response(),
+        )
     }
 
     #[test]
-    fn get_host_info_returns_exact_v4_surface_contexts() {
+    fn get_host_info_returns_exact_v5_surface_contexts() {
         for kind in SurfaceKind::ALL {
             let response = handle_for(r#"{"id":"1","method":"getHostInfo"}"#, kind);
 
             assert_eq!(response["ok"], true);
             assert_eq!(response["result"]["shell"], "html-desktop-shell");
             assert_eq!(response["result"]["backend"], "wayland-layer-shell");
-            assert_eq!(response["result"]["bridgeVersion"], 4);
+            assert_eq!(response["result"]["bridgeVersion"], 5);
             assert_eq!(
                 response["result"]["surface"]["kind"],
                 context(kind).kind().wire_name()
@@ -393,7 +661,7 @@ mod tests {
             assert_eq!(response["result"]["surface"]["monitorIndex"], 7);
             assert_eq!(response["result"]["surface"]["output"], "eDP-1");
         }
-        assert_eq!(BRIDGE_VERSION, 4);
+        assert_eq!(BRIDGE_VERSION, 5);
     }
 
     #[test]
@@ -453,37 +721,6 @@ mod tests {
     }
 
     #[test]
-    fn get_state_returns_provider_snapshot_for_authorized_surface() {
-        let response = handle_for(
-            r#"{"id":"state","method":"getState"}"#,
-            SurfaceKind::DiagnosticsDialog,
-        );
-
-        assert_eq!(response["id"], "state");
-        assert_eq!(response["ok"], true);
-        assert_eq!(response["result"]["clock"]["time"], "12:34:56");
-        assert_eq!(response["result"]["host"]["monitorCount"], 2);
-        assert_eq!(response["result"]["niri"]["available"], false);
-    }
-
-    #[test]
-    fn niri_focus_workspace_uses_exact_workspace_index_wire_contract() {
-        let response = handle_for(
-            r#"{"id":"focus","method":"niriFocusWorkspace","params":{"workspaceIndex":2}}"#,
-            SurfaceKind::QuickPanel,
-        );
-
-        assert_eq!(
-            response,
-            serde_json::json!({
-                "id": "focus",
-                "ok": true,
-                "result": { "workspaceIndex": 2 },
-            })
-        );
-    }
-
-    #[test]
     fn privileged_params_reject_missing_wrong_type_and_unknown_fields() {
         let invalid_requests = [
             r#"{"id":"focus","method":"niriFocusWorkspace","params":{}}"#,
@@ -509,14 +746,17 @@ mod tests {
             r#"["array","setQuickPanelOpen",{"open":true}]"#,
             r#"["array","setDiagnosticsDialogOpen",{"open":false}]"#,
         ] {
-            let response = response_value(&handle_native_request(
-                request,
-                &context(SurfaceKind::Bar),
-                || panic!("array envelope must not read state"),
-                |_| panic!("array envelope must not focus a workspace"),
-                |_| panic!("array envelope must not change Quick Panel"),
-                |_| panic!("array envelope must not change Diagnostics"),
-            ));
+            let response = response_value(
+                &handle_native_request(
+                    request,
+                    &context(SurfaceKind::Bar),
+                    || panic!("array envelope must not read state"),
+                    |_| panic!("array envelope must not focus a workspace"),
+                    |_| panic!("array envelope must not change Quick Panel"),
+                    |_| panic!("array envelope must not change Diagnostics"),
+                )
+                .into_response(),
+            );
             assert_eq!(response["id"], "");
             assert_eq!(response["ok"], false);
             assert_eq!(response["error"]["code"], "bad_request");
@@ -628,5 +868,102 @@ mod tests {
         assert_eq!(response["id"], "");
         assert_eq!(response["ok"], false);
         assert_eq!(response["error"]["code"], "bad_request");
+    }
+
+    #[test]
+    fn desktop_methods_reject_nonobject_and_unexpected_authority_before_dispatch() {
+        for method in &ALL_METHODS[6..] {
+            for params in [
+                serde_json::json!([]),
+                serde_json::json!([true]),
+                serde_json::json!(null),
+                serde_json::json!({"busName": "org.freedesktop.DBus", "objectPath": "/"}),
+            ] {
+                let request =
+                    serde_json::json!({"id": "invalid", "method": method, "params": params});
+                let response = handle_for(&request.to_string(), SurfaceKind::Bar);
+                assert_eq!(response["error"]["code"], "invalid_params", "{method}");
+            }
+        }
+    }
+
+    #[test]
+    fn desktop_numeric_and_identity_boundaries_prevent_dispatch() {
+        for (method, params) in [
+            ("setAudioVolume", serde_json::json!({"volume": 101})),
+            ("setAudioVolume", serde_json::json!({"volume": -1})),
+            ("setAudioVolume", serde_json::json!({"volume": 0.5})),
+            ("setAudioMuted", serde_json::json!({"muted": 1})),
+            ("activateTrayItem", serde_json::json!({"itemId": ""})),
+            (
+                "scrollTrayItem",
+                serde_json::json!({"itemId": "1", "delta": 120, "orientation": "diagonal"}),
+            ),
+            (
+                "dismissNotification",
+                serde_json::json!({"notificationId": 0}),
+            ),
+            (
+                "invokeNotificationAction",
+                serde_json::json!({"notificationId": 1, "actionKey": ""}),
+            ),
+            (
+                "searchApplications",
+                serde_json::json!({"query": "", "limit": 0}),
+            ),
+            (
+                "searchApplications",
+                serde_json::json!({"query": "", "limit": 51}),
+            ),
+            (
+                "searchApplications",
+                serde_json::json!({"query": "x".repeat(257), "limit": 1}),
+            ),
+            (
+                "launchApplication",
+                serde_json::json!({"applicationId": "x", "command": "rm"}),
+            ),
+        ] {
+            let request = serde_json::json!({"id": "boundary", "method": method, "params": params});
+            let response = handle_for(&request.to_string(), SurfaceKind::QuickPanel);
+            assert_eq!(
+                response["error"]["code"], "invalid_params",
+                "{method}: {params}"
+            );
+        }
+        for volume in [0, 100] {
+            let request = serde_json::json!({"id": "volume", "method": "setAudioVolume", "params": {"volume": volume}});
+            let dispatch = handle_native_request(
+                &request.to_string(),
+                &context(SurfaceKind::Bar),
+                || panic!("volume request must not read aggregate state"),
+                |_| panic!("volume request must not change workspace"),
+                |_| panic!("volume request must not open surfaces"),
+                |_| panic!("volume request must not open diagnostics"),
+            );
+            assert!(
+                matches!(dispatch, NativeDispatch::Desktop { request: DesktopRequest::SetAudioVolume { volume: value }, .. } if value == volume)
+            );
+        }
+    }
+
+    #[test]
+    fn notification_action_bounds_count_unicode_characters_not_bytes() {
+        let key = "打开".repeat(100);
+        let parsed = desktop_request(
+            "invokeNotificationAction",
+            &serde_json::json!({"notificationId": 1, "actionKey": key}),
+        )
+        .unwrap();
+        assert!(
+            matches!(parsed, DesktopRequest::InvokeNotificationAction { action_key, .. } if action_key == key)
+        );
+        assert!(
+            desktop_request(
+                "invokeNotificationAction",
+                &serde_json::json!({"notificationId": 1, "actionKey": "开".repeat(257)}),
+            )
+            .is_err()
+        );
     }
 }

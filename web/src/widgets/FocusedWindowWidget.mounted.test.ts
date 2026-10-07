@@ -13,7 +13,7 @@ function mountWidget(state: ShellState | null, output: string | null): VueWrappe
       hostInfo: {
         shell: "html-desktop-shell",
         backend: "wayland-layer-shell",
-        bridgeVersion: 4,
+        bridgeVersion: 5,
         surface: { kind: "bar", monitorIndex: 0, output },
       },
       bridgeError: "",

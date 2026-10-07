@@ -23,7 +23,7 @@ function mountBar(output = "DP-2", monitorIndex = 0): VueWrapper {
   shell.hostInfo = {
     shell: "html-desktop-shell",
     backend: "wayland-layer-shell",
-    bridgeVersion: 4,
+    bridgeVersion: 5,
     surface: { kind: "bar", monitorIndex, output },
   };
   shell.capabilities = {
@@ -61,7 +61,7 @@ afterEach(() => {
   delete window.webkit;
 });
 
-describe("BarView mounted Bridge v4 integration", () => {
+describe("BarView mounted integration", () => {
   test("uses exact surface-control payloads and preserves visible native failures", async () => {
     const requests: RequestEnvelope[] = [];
     window.webkit = {

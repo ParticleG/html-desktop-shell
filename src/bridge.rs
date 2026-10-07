@@ -44,10 +44,10 @@ pub fn attach_bridge(
                 .to_json(0)
                 .map(|json| json.to_string())
                 .unwrap_or_else(|| "null".to_owned());
-            let response_json = messages::handle_native_request(
+            let dispatch = messages::handle_native_request(
                 raw_request.as_str(),
                 &surface_context,
-                || providers.snapshot(),
+                || providers.snapshot_for(surface_context.kind()),
                 |workspace_index| providers.focus_workspace(workspace_index),
                 |open| {
                     let Some(manager) = surface_manager.upgrade() else {
@@ -66,8 +66,42 @@ pub fn attach_bridge(
                         .map_err(native_surface_error)
                 },
             );
-            let result = javascriptcore6::Value::new_string(&context, Some(response_json.as_str()));
-            reply.return_value(&result);
+            let reply = reply.clone();
+            let weak_web_view = weak_web_view.clone();
+            let trust = trust.clone();
+            let response = move |response_json: String| {
+                let Some(web_view) = weak_web_view.upgrade() else {
+                    return;
+                };
+                if !trust.allows_bridge(&web_view) {
+                    reply
+                        .return_error_message("native bridge is unavailable for untrusted content");
+                    return;
+                }
+                let result = javascriptcore6::Value::new_string(&context, Some(&response_json));
+                reply.return_value(&result);
+            };
+            match dispatch {
+                messages::NativeDispatch::Response(response_json) => response(response_json),
+                messages::NativeDispatch::Desktop { id, request } => {
+                    let resources = surface_manager
+                        .upgrade()
+                        .ok_or_else(|| surface_unavailable(&surface_context))
+                        .and_then(|manager| {
+                            SurfaceManager::desktop_context(&manager, &surface_context)
+                                .map_err(native_surface_error)
+                        });
+                    match resources {
+                        Ok((point, launch_context)) => providers.execute_desktop(
+                            request,
+                            point,
+                            launch_context,
+                            move |result| response(messages::desktop_response(&id, result)),
+                        ),
+                        Err(error) => response(messages::desktop_response(&id, Err(error))),
+                    }
+                }
+            }
             true
         },
     );
