@@ -23,6 +23,9 @@
         :key="widget"
         v-bind="widgetProps"
       />
+      <AudioBarWidget />
+      <TrayBarWidget />
+      <NotificationBarWidget />
       <Button
         v-if="canOpenQuickPanel"
         class="surface-action"
@@ -56,11 +59,14 @@ import type { WidgetKey } from "../layout";
 import { useShellStore } from "../stores/shell";
 import ActionStatusWidget from "../widgets/ActionStatusWidget.vue";
 import AppNameWidget from "../widgets/AppNameWidget.vue";
+import AudioBarWidget from "../widgets/AudioBarWidget.vue";
 import BatteryWidget from "../widgets/BatteryWidget.vue";
 import BridgeStatusWidget from "../widgets/BridgeStatusWidget.vue";
 import ClockWidget from "../widgets/ClockWidget.vue";
 import FocusedWindowWidget from "../widgets/FocusedWindowWidget.vue";
 import NetworkWidget from "../widgets/NetworkWidget.vue";
+import NotificationBarWidget from "../widgets/NotificationBarWidget.vue";
+import TrayBarWidget from "../widgets/TrayBarWidget.vue";
 import WorkspacesWidget from "../widgets/WorkspacesWidget.vue";
 import type { WidgetProps } from "../widgets/types";
 

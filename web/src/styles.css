@@ -302,3 +302,242 @@ body {
   display: flex;
   justify-content: center;
 }
+
+.desktop-tabs {
+  --p-tabs-tablist-background: transparent;
+  --p-tabs-tablist-border-color: rgba(167, 243, 208, 0.22);
+  --p-tabs-tab-color: #94a3b8;
+  --p-tabs-tab-hover-color: #f5f7fb;
+  --p-tabs-tab-active-color: #a7f3d0;
+  --p-tabs-tab-active-border-color: #a7f3d0;
+  --p-tabs-active-bar-background: #a7f3d0;
+  --p-tabs-tabpanel-background: transparent;
+  --p-tabs-tabpanel-color: #f5f7fb;
+  --p-tabs-nav-button-background: #0c0e14;
+  --p-tabs-nav-button-color: #94a3b8;
+  --p-tabs-nav-button-hover-color: #f5f7fb;
+  --p-tabs-nav-button-shadow: none;
+  min-width: 0;
+}
+
+.desktop-tabs .p-tab {
+  font: inherit;
+  padding: 8px;
+}
+
+.desktop-tabs .p-tabpanels {
+  background: transparent;
+  min-width: 0;
+  padding: 12px 0;
+}
+
+.desktop-section,
+.desktop-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.desktop-header,
+.desktop-controls,
+.desktop-item-main {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+}
+
+.desktop-header {
+  justify-content: space-between;
+}
+
+.desktop-header h2 {
+  color: #a7f3d0;
+  font-size: 1rem;
+  margin: 0;
+}
+
+.desktop-controls {
+  flex-wrap: wrap;
+}
+
+.desktop-list {
+  list-style: none;
+  margin: 0;
+  max-height: 18rem;
+  overflow: auto;
+  padding: 0;
+}
+
+.desktop-item,
+.notification-item {
+  border: 1px solid rgba(167, 243, 208, 0.16);
+  border-radius: 8px;
+  padding: 10px;
+}
+
+.desktop-text {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.desktop-caption,
+.desktop-empty {
+  color: #94a3b8;
+  margin: 0;
+}
+
+.desktop-error {
+  color: #fca5a5;
+  margin: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.desktop-range,
+.desktop-search {
+  box-sizing: border-box;
+  max-width: 100%;
+  width: 100%;
+}
+
+.desktop-range {
+  accent-color: #a7f3d0;
+}
+
+.shell-icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  position: relative;
+}
+
+.shell-icon canvas,
+.shell-icon svg {
+  height: 100%;
+  inset: 0;
+  position: absolute;
+  width: 100%;
+}
+
+.tray-icons {
+  align-items: center;
+  display: flex;
+  gap: 4px;
+}
+
+.tray-icon-button.p-button {
+  height: 24px;
+  padding: 2px;
+  width: 24px;
+}
+
+.tray-menu,
+.tray-menu-node {
+  list-style: none;
+  margin: 0;
+  min-width: 0;
+  padding: 0;
+}
+
+.tray-menu .tray-menu {
+  border-left: 1px solid rgba(167, 243, 208, 0.18);
+  padding-left: 12px;
+}
+
+.tray-menu-node > button {
+  justify-content: flex-start;
+  text-align: left;
+  white-space: normal;
+  width: 100%;
+}
+
+.tray-toggle {
+  flex: 0 0 1rem;
+}
+
+.notification-body {
+  margin: 8px 0;
+  max-height: 8rem;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.notification-item.is-unread {
+  border-color: rgba(167, 243, 208, 0.5);
+}
+
+.notification-item.is-critical {
+  border-color: #fca5a5;
+}
+
+.desktop-text .desktop-caption {
+  display: block;
+  font-weight: normal;
+}
+
+.desktop-list .desktop-item-main.p-button {
+  background: transparent;
+  border-color: transparent;
+  color: inherit;
+  font: inherit;
+  justify-content: flex-start;
+  padding: 4px;
+  text-align: left;
+  white-space: normal;
+  width: 100%;
+}
+
+.desktop-list .desktop-item-main.is-selected {
+  background: rgba(16, 185, 129, 0.12);
+  border-color: rgba(167, 243, 208, 0.5);
+}
+
+.notification-item {
+  align-items: flex-start;
+  display: flex;
+  gap: 8px;
+}
+
+.notification-item > .desktop-item-main {
+  align-items: stretch;
+  flex: 1;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.tray-icon-stack {
+  display: inline-flex;
+  flex: 0 0 auto;
+  position: relative;
+}
+
+.tray-icon-overlay {
+  bottom: -1px;
+  position: absolute;
+  right: -1px;
+}
+
+.tray-menu-panel {
+  border-top: 1px solid rgba(167, 243, 208, 0.2);
+  padding-top: 10px;
+}
+
+.tray-menu-panel h3 {
+  font-size: 1rem;
+  margin: 0;
+}
+
+.tray-menu [role="separator"] {
+  border-top: 1px solid rgba(167, 243, 208, 0.2);
+  margin: 6px 0;
+}
+
+.tray-bar-error {
+  max-width: 20ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

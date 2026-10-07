@@ -78,6 +78,22 @@ const providers = computed(() => [
       ? t("states.available")
       : state.value?.network?.reason ?? t("states.unavailable"),
   },
+  ...[
+    { name: t("desktop.audio"), snapshot: state.value?.audio },
+    { name: t("desktop.tray"), snapshot: state.value?.tray },
+    { name: t("desktop.notifications"), snapshot: state.value?.notifications },
+    { name: t("desktop.applications"), snapshot: state.value?.applications },
+  ].map(({ name, snapshot }) => ({
+    name,
+    availability: snapshot?.available === true
+      ? [
+          t("states.available"),
+          ...("count" in snapshot && snapshot.count !== undefined ? [t("desktop.itemCount", { count: snapshot.count })] : []),
+          ...("historyCount" in snapshot ? [t("desktop.historyCount", { count: snapshot.historyCount })] : []),
+          ...("unreadCount" in snapshot ? [t("desktop.unread", { count: snapshot.unreadCount })] : []),
+        ].join(" · ")
+      : snapshot?.reason ?? t("states.unavailable"),
+  })),
 ]);
 const widgetProps = computed<WidgetProps>(() => ({
   state: state.value,

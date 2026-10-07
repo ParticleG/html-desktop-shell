@@ -23,6 +23,21 @@
       <ActionStatusWidget v-bind="widgetProps" />
     </section>
 
+    <Tabs v-model:value="desktopTab" class="desktop-tabs" lazy scrollable>
+      <TabList :aria-label="t('regions.desktopControls')">
+        <Tab value="audio">{{ t("desktop.audio") }}</Tab>
+        <Tab value="tray">{{ t("desktop.tray") }}</Tab>
+        <Tab value="notifications">{{ t("desktop.notifications") }}</Tab>
+        <Tab value="applications">{{ t("desktop.applications") }}</Tab>
+      </TabList>
+      <TabPanels>
+        <TabPanel value="audio"><AudioControls /></TabPanel>
+        <TabPanel value="tray"><TrayControls /></TabPanel>
+        <TabPanel value="notifications"><NotificationCenter /></TabPanel>
+        <TabPanel value="applications"><ApplicationLauncher /></TabPanel>
+      </TabPanels>
+    </Tabs>
+
     <footer v-if="canOpenDiagnostics" class="surface-footer">
       <Button
         class="surface-action"
@@ -37,22 +52,32 @@
 <script setup lang="ts">
 import { storeToRefs } from "pinia";
 import Button from "primevue/button";
-import { computed } from "vue";
+import Tab from "primevue/tab";
+import TabList from "primevue/tablist";
+import TabPanel from "primevue/tabpanel";
+import TabPanels from "primevue/tabpanels";
+import Tabs from "primevue/tabs";
+import { computed, ref } from "vue";
 import { useI18n } from "vue-i18n";
 
 import { useShellPolling } from "../composables/useShellPolling";
 import { useShellStore } from "../stores/shell";
 import ActionStatusWidget from "../widgets/ActionStatusWidget.vue";
+import ApplicationLauncher from "../widgets/ApplicationLauncher.vue";
+import AudioControls from "../widgets/AudioControls.vue";
 import BatteryWidget from "../widgets/BatteryWidget.vue";
 import BridgeStatusWidget from "../widgets/BridgeStatusWidget.vue";
 import FocusedWindowWidget from "../widgets/FocusedWindowWidget.vue";
 import NetworkWidget from "../widgets/NetworkWidget.vue";
+import NotificationCenter from "../widgets/NotificationCenter.vue";
+import TrayControls from "../widgets/TrayControls.vue";
 import WorkspacesWidget from "../widgets/WorkspacesWidget.vue";
 import type { WidgetProps } from "../widgets/types";
 
 const { t } = useI18n();
 const shell = useShellStore();
 const { hostInfo, state, bridgeError, actionError, actionErrorDetail } = storeToRefs(shell);
+const desktopTab = ref("audio");
 const canClose = computed(() => shell.hasCapability("setQuickPanelOpen"));
 const canOpenDiagnostics = computed(() => shell.hasCapability("setDiagnosticsDialogOpen"));
 const widgetProps = computed<WidgetProps>(() => ({
