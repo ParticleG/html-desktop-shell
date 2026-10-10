@@ -22,6 +22,7 @@ use audio::AudioController;
 use desktop::{DesktopRequest, ScreenPoint};
 use notifications::NotificationsController;
 use tray::TrayController;
+pub(crate) use tray::TrayMenuSession;
 
 struct DesktopProviders {
     audio: AudioController,
@@ -129,9 +130,6 @@ impl ProviderRegistry {
             DesktopRequest::SecondaryActivateTrayItem { item_id } => {
                 desktop.tray.activate(item_id, point, true, reply)
             }
-            DesktopRequest::ShowTrayItemContextMenu { item_id } => {
-                desktop.tray.context_menu(item_id, point, reply)
-            }
             DesktopRequest::ScrollTrayItem {
                 item_id,
                 delta,
@@ -167,6 +165,69 @@ impl ProviderRegistry {
                     .applications
                     .launch(application_id, launch_context, reply)
             }
+        }
+    }
+
+    pub(crate) fn bind_tray_menu(
+        &self,
+        item_id: &str,
+        invalidated: impl FnOnce() + 'static,
+    ) -> Result<TrayMenuSession, NativeMethodError> {
+        self.desktop
+            .as_ref()
+            .ok_or_else(|| {
+                NativeMethodError::new("tray_unavailable", "desktop providers are unavailable")
+            })?
+            .tray
+            .bind_menu(item_id, invalidated)
+    }
+
+    pub(crate) fn validate_tray_menu(
+        &self,
+        session: &TrayMenuSession,
+    ) -> Result<(), NativeMethodError> {
+        self.desktop
+            .as_ref()
+            .ok_or_else(|| {
+                NativeMethodError::new("tray_unavailable", "desktop providers are unavailable")
+            })?
+            .tray
+            .validate_menu_session(session)
+    }
+
+    pub(crate) fn execute_tray_menu(
+        &self,
+        session: TrayMenuSession,
+        request: DesktopRequest,
+        reply: impl FnOnce(Result<serde_json::Value, NativeMethodError>) + 'static,
+    ) {
+        let Some(desktop) = &self.desktop else {
+            reply(Err(NativeMethodError::new(
+                "tray_unavailable",
+                "desktop providers are unavailable",
+            )));
+            return;
+        };
+        match request {
+            DesktopRequest::GetTrayMenu {
+                item_id,
+                menu_item_id,
+            } if item_id == session.item_id() => {
+                desktop.tray.get_bound_menu(session, menu_item_id, reply);
+            }
+            DesktopRequest::ActivateTrayMenuItem {
+                item_id,
+                menu_item_id,
+                revision,
+            } if item_id == session.item_id() => {
+                desktop
+                    .tray
+                    .activate_bound_menu(session, menu_item_id, revision, reply);
+            }
+            _ => reply(Err(NativeMethodError::new(
+                "surface_forbidden",
+                "native tray menu is bound to a different item or operation",
+            ))),
         }
     }
 

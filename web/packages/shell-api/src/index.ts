@@ -4,7 +4,8 @@ export type SurfaceContext =
   | BarSurfaceContext
   | QuickPanelSurfaceContext
   | WorkspaceHudSurfaceContext
-  | DiagnosticsDialogSurfaceContext;
+  | DiagnosticsDialogSurfaceContext
+  | TrayMenuSurfaceContext;
 
 export interface BarSurfaceContext {
   kind: "bar";
@@ -31,10 +32,18 @@ export interface DiagnosticsDialogSurfaceContext {
   output: string | null;
 }
 
+export interface TrayMenuSurfaceContext {
+  kind: "trayMenu";
+  monitorIndex: number;
+  output: string | null;
+  /** Native-bound tray item identity; never supplied by the browser. */
+  trayItemId: string;
+}
+
 export interface HostInfo {
   shell: "html-desktop-shell";
   backend: "wayland-layer-shell";
-  bridgeVersion: 5;
+  bridgeVersion: 6;
   surface: SurfaceContext;
 }
 
@@ -58,7 +67,8 @@ export type ShellMethod =
   | "invokeNotificationAction"
   | "markAllNotificationsRead"
   | "searchApplications"
-  | "launchApplication";
+  | "launchApplication"
+  | "closeTrayMenu";
 
 export interface Capabilities {
   methods: ShellMethod[];
@@ -85,6 +95,7 @@ const SHELL_METHODS: Record<ShellMethod, true> = {
   markAllNotificationsRead: true,
   searchApplications: true,
   launchApplication: true,
+  closeTrayMenu: true,
 };
 
 const U32_MAX = 0xffff_ffff;
@@ -97,8 +108,8 @@ export function validateHostInfo(value: unknown): HostInfo {
   if (hostInfo.backend !== "wayland-layer-shell") {
     throw invalidResult('HostInfo.backend must equal "wayland-layer-shell"');
   }
-  if (hostInfo.bridgeVersion !== 5) {
-    throw invalidResult("HostInfo.bridgeVersion must equal 5");
+  if (hostInfo.bridgeVersion !== 6) {
+    throw invalidResult("HostInfo.bridgeVersion must equal 6");
   }
 
   return {
@@ -130,6 +141,18 @@ export function validateSurfaceContext(value: unknown): SurfaceContext {
         throw invalidResult("HostInfo.surface.workspaceIndex must be a positive integer");
       }
       return { kind: "workspaceHud", ...shared, workspaceIndex: surface.workspaceIndex as number };
+    }
+    case "trayMenu": {
+      requireExactKeys(
+        surface,
+        ["kind", "monitorIndex", "output", "trayItemId"],
+        "HostInfo.surface (trayMenu)",
+      );
+      const shared = validateSurfaceFields(surface);
+      if (typeof surface.trayItemId !== "string" || surface.trayItemId.length === 0) {
+        throw invalidResult("HostInfo.surface.trayItemId must be a non-empty string");
+      }
+      return { kind: "trayMenu", ...shared, trayItemId: surface.trayItemId };
     }
     default:
       throw invalidResult(`HostInfo.surface.kind is unsupported: ${JSON.stringify(surface.kind)}`);
@@ -477,7 +500,7 @@ export function secondaryActivateTrayItem(itemId: string): Promise<{ itemId: str
   return request("secondaryActivateTrayItem", { itemId });
 }
 
-export function showTrayItemContextMenu(itemId: string): Promise<{ itemId: string }> {
+export function showTrayItemContextMenu(itemId: string): Promise<null> {
   return request("showTrayItemContextMenu", { itemId });
 }
 
@@ -495,6 +518,10 @@ export function activateTrayMenuItem(
   revision: number,
 ): Promise<{ itemId: string; menuItemId: number; revision: number }> {
   return request("activateTrayMenuItem", { itemId, menuItemId, revision });
+}
+
+export function closeTrayMenu(): Promise<null> {
+  return request("closeTrayMenu", {});
 }
 
 export function getNotifications(): Promise<{ items: NotificationItem[] }> {

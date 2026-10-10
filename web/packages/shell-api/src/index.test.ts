@@ -17,7 +17,9 @@ let priorWebkitDescriptor: PropertyDescriptor | undefined;
 let handlerInstalled = false;
 
 function installHandler(postMessage: (request: PostedRequest) => string): void {
-  priorWebkitDescriptor = Object.getOwnPropertyDescriptor(window, "webkit");
+  if (!handlerInstalled) {
+    priorWebkitDescriptor = Object.getOwnPropertyDescriptor(window, "webkit");
+  }
   handlerInstalled = true;
   Object.defineProperty(window, "webkit", {
     configurable: true,
@@ -43,12 +45,13 @@ afterEach(() => {
 });
 
 describe("shell API contract", () => {
-  test("validates every exact surface shape", async () => {
+  test("validates every exact v6 surface shape", async () => {
     const surfaces: HostInfo["surface"][] = [
       { kind: "bar", monitorIndex: 0, output: null },
       { kind: "quickPanel", monitorIndex: 1, output: "DP-1" },
       { kind: "workspaceHud", monitorIndex: 2, output: "HDMI-A-1", workspaceIndex: 1 },
       { kind: "diagnosticsDialog", monitorIndex: 0xffff_ffff, output: null },
+      { kind: "trayMenu", monitorIndex: 3, output: "DP-3", trayItemId: "item-7" },
     ];
     let index = 0;
     installHandler((request) => JSON.stringify({
@@ -57,7 +60,7 @@ describe("shell API contract", () => {
       result: {
         shell: "html-desktop-shell",
         backend: "wayland-layer-shell",
-        bridgeVersion: 5,
+        bridgeVersion: 6,
         surface: surfaces[index++],
       },
     }));
@@ -66,7 +69,7 @@ describe("shell API contract", () => {
       await expect(getHostInfo()).resolves.toEqual({
         shell: "html-desktop-shell",
         backend: "wayland-layer-shell",
-        bridgeVersion: 5,
+        bridgeVersion: 6,
         surface,
       });
     }
@@ -77,44 +80,68 @@ describe("shell API contract", () => {
       {
         shell: "html-desktop-shell",
         backend: "wayland-layer-shell",
-        bridgeVersion: 3,
+        bridgeVersion: 5,
         surface: { kind: "bar", monitorIndex: 0, output: null },
       },
       {
         shell: "html-desktop-shell",
         backend: "wayland-layer-shell",
-        bridgeVersion: 5,
+        bridgeVersion: 6,
         surface: { kind: "notification", monitorIndex: 0, output: null },
       },
       {
         shell: "html-desktop-shell",
         backend: "wayland-layer-shell",
-        bridgeVersion: 5,
+        bridgeVersion: 6,
         surface: { kind: "bar", monitorIndex: -1, output: null },
       },
       {
         shell: "html-desktop-shell",
         backend: "wayland-layer-shell",
-        bridgeVersion: 5,
+        bridgeVersion: 6,
         surface: { kind: "quickPanel", monitorIndex: 0.5, output: null },
       },
       {
         shell: "html-desktop-shell",
         backend: "wayland-layer-shell",
-        bridgeVersion: 5,
+        bridgeVersion: 6,
         surface: { kind: "workspaceHud", monitorIndex: 0, output: null, workspaceIndex: 0 },
       },
       {
         shell: "html-desktop-shell",
         backend: "wayland-layer-shell",
-        bridgeVersion: 5,
+        bridgeVersion: 6,
         surface: { kind: "diagnosticsDialog", monitorIndex: 0, output: 7 },
       },
       {
         shell: "html-desktop-shell",
         backend: "wayland-layer-shell",
-        bridgeVersion: 5,
+        bridgeVersion: 6,
         surface: { kind: "bar", monitorIndex: 0, output: null, workspaceIndex: 1 },
+      },
+      {
+        shell: "html-desktop-shell",
+        backend: "wayland-layer-shell",
+        bridgeVersion: 6,
+        surface: { kind: "trayMenu", monitorIndex: 0, output: null },
+      },
+      {
+        shell: "html-desktop-shell",
+        backend: "wayland-layer-shell",
+        bridgeVersion: 6,
+        surface: { kind: "trayMenu", monitorIndex: 0, output: null, trayItemId: "" },
+      },
+      {
+        shell: "html-desktop-shell",
+        backend: "wayland-layer-shell",
+        bridgeVersion: 6,
+        surface: { kind: "trayMenu", monitorIndex: 0, output: null, trayItemId: 4 },
+      },
+      {
+        shell: "html-desktop-shell",
+        backend: "wayland-layer-shell",
+        bridgeVersion: 6,
+        surface: { kind: "trayMenu", monitorIndex: 0, output: "DP-1", trayItemId: "item-1", workspaceIndex: 2 },
       },
     ];
     let index = 0;
@@ -129,15 +156,22 @@ describe("shell API contract", () => {
     }
   });
 
-  test("rejects malformed capabilities", async () => {
+  test("rejects an unsupported capability but accepts closeTrayMenu", async () => {
+    installHandler((request) => JSON.stringify({
+      id: request.id,
+      ok: true,
+      result: { methods: ["getHostInfo", "closeTrayMenu"] },
+    }));
+    await expect(getCapabilities()).resolves.toEqual({ methods: ["getHostInfo", "closeTrayMenu"] });
+
     installHandler((request) => JSON.stringify({
       id: request.id,
       ok: true,
       result: { methods: ["getHostInfo", "genericTrigger"] },
     }));
-
     await expect(getCapabilities()).rejects.toThrow("Capabilities.methods contains an unsupported method");
   });
+
 
   test("preserves native error code and message", async () => {
     installHandler((request) => JSON.stringify({

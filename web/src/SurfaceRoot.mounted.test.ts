@@ -50,7 +50,7 @@ function mountSurface(surface: SurfaceContext, requests: RequestEnvelope[]): Vue
               result: {
                 shell: "html-desktop-shell",
                 backend: "wayland-layer-shell",
-                bridgeVersion: 5,
+                bridgeVersion: 6,
                 surface,
               },
             });
@@ -175,19 +175,19 @@ describe("SurfaceRoot mounted routing", () => {
       {
         shell: "html-desktop-shell",
         backend: "wayland-layer-shell",
-        bridgeVersion: 3,
+        bridgeVersion: 5,
         surface: { kind: "bar", monitorIndex: 0, output: null },
       },
       {
         shell: "html-desktop-shell",
         backend: "wayland-layer-shell",
-        bridgeVersion: 5,
+        bridgeVersion: 6,
         surface: { kind: "unknown", monitorIndex: 0, output: null },
       },
       {
         shell: "html-desktop-shell",
         backend: "wayland-layer-shell",
-        bridgeVersion: 5,
+        bridgeVersion: 6,
         surface: { kind: "workspaceHud", monitorIndex: -1, output: null, workspaceIndex: 0 },
       },
     ];
@@ -211,7 +211,7 @@ describe("SurfaceRoot mounted routing", () => {
       {
         shell: "html-desktop-shell",
         backend: "wayland-layer-shell",
-        bridgeVersion: 5,
+        bridgeVersion: 6,
         surface: { kind: "bar", monitorIndex: 0, output: null },
       },
       { methods: ["getHostInfo", "genericTrigger"] },

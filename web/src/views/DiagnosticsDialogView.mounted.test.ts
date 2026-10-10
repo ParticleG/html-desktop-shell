@@ -24,7 +24,7 @@ function mountDiagnostics(methods: ShellMethod[]) {
   shell.hostInfo = {
     shell: "html-desktop-shell",
     backend: "wayland-layer-shell",
-    bridgeVersion: 5,
+    bridgeVersion: 6,
     surface: { kind: "diagnosticsDialog", monitorIndex: 1, output: "DP-1" },
   };
   shell.capabilities = { methods };

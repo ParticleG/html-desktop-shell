@@ -23,7 +23,7 @@ function mountBar(output = "DP-2", monitorIndex = 0): VueWrapper {
   shell.hostInfo = {
     shell: "html-desktop-shell",
     backend: "wayland-layer-shell",
-    bridgeVersion: 5,
+    bridgeVersion: 6,
     surface: { kind: "bar", monitorIndex, output },
   };
   shell.capabilities = {

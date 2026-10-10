@@ -18,7 +18,7 @@ function mountWidget(
       hostInfo: {
         shell: "html-desktop-shell",
         backend: "wayland-layer-shell",
-        bridgeVersion: 5,
+        bridgeVersion: 6,
         surface: { kind: "bar", monitorIndex: 0, output: "DP-1" },
       },
       bridgeError: "",

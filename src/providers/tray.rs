@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::rc::{Rc, Weak};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -181,6 +181,58 @@ struct Binding {
     path: String,
 }
 
+#[derive(Clone)]
+pub(crate) struct TrayMenuSession(Rc<TrayMenuSessionState>);
+
+struct TrayMenuSessionState {
+    item_id: String,
+    binding: Binding,
+    path: String,
+    path_serial: u64,
+    active: Cell<bool>,
+    observed_layout: Cell<Option<(u64, u32)>>,
+    cancellable: gio::Cancellable,
+    invalidated: RefCell<Option<Box<dyn FnOnce()>>>,
+}
+
+impl TrayMenuSessionState {
+    fn invalidate(&self) {
+        if !self.active.replace(false) {
+            return;
+        }
+        self.cancellable.cancel();
+        if let Some(callback) = self.invalidated.borrow_mut().take() {
+            // Item retirement often happens under the controller's mutable borrow.
+            glib::idle_add_local_once(callback);
+        }
+    }
+}
+
+impl Drop for TrayMenuSessionState {
+    fn drop(&mut self) {
+        self.cancellable.cancel();
+    }
+}
+
+impl TrayMenuSession {
+    pub(crate) fn item_id(&self) -> &str {
+        &self.0.item_id
+    }
+
+    pub(crate) fn is_active(&self) -> bool {
+        self.0.active.get()
+    }
+
+    pub(crate) fn cancellable(&self) -> &gio::Cancellable {
+        &self.0.cancellable
+    }
+
+    pub(crate) fn retire(&self) {
+        self.0.invalidated.borrow_mut().take();
+        self.0.invalidate();
+    }
+}
+
 struct Item {
     binding: Binding,
     aliases: BTreeSet<String>,
@@ -196,6 +248,7 @@ struct Item {
     menu_path_serial: u64,
     menu_serial: u64,
     menu: Option<MenuLayout>,
+    menu_sessions: Vec<Weak<TrayMenuSessionState>>,
 }
 
 impl Item {
@@ -215,6 +268,7 @@ impl Item {
             menu_path_serial: 0,
             menu_serial: 0,
             menu: None,
+            menu_sessions: Vec::new(),
         }
     }
 
@@ -224,6 +278,7 @@ impl Item {
     }
 
     fn invalidate_menu_path(&mut self) {
+        self.retire_menu_sessions();
         self.invalidate_menu();
         self.menu_path_serial = self.menu_path_serial.wrapping_add(1);
         self.menu_path = None;
@@ -232,10 +287,21 @@ impl Item {
             view.has_menu = false;
         }
     }
+
+    fn retire_menu_sessions(&mut self) {
+        for session in self
+            .menu_sessions
+            .drain(..)
+            .filter_map(|session| session.upgrade())
+        {
+            session.invalidate();
+        }
+    }
 }
 
 impl Drop for Item {
     fn drop(&mut self) {
+        self.retire_menu_sessions();
         self.cancellable.cancel();
     }
 }
@@ -334,6 +400,19 @@ impl MenuLayout {
         }
         Ok(())
     }
+
+    fn validate_read(&self, id: i32) -> Result<(), NativeMethodError> {
+        if id != 0 {
+            return self.validate_submenu(id);
+        }
+        if !self.root.enabled || !self.root.visible {
+            return Err(error(
+                "tray_menu_item_disabled",
+                "The tray menu root is disabled or hidden",
+            ));
+        }
+        Ok(())
+    }
 }
 
 #[derive(Clone)]
@@ -349,6 +428,8 @@ struct MenuRequest {
     item: ItemHandle,
     path: String,
     path_serial: u64,
+    session: Option<TrayMenuSession>,
+    menu_item_id: i32,
     callback: Box<dyn FnOnce(Result<Value, NativeMethodError>)>,
 }
 
@@ -431,6 +512,44 @@ impl State {
             return Err(error(
                 "unknown_tray_item",
                 "The tray item is no longer registered",
+            ));
+        }
+        Ok(())
+    }
+
+    fn validate_session(&self, session: &TrayMenuSession) -> Result<(), NativeMethodError> {
+        if !session.is_active() {
+            return Err(error(
+                "stale_tray_menu",
+                "The native tray menu has been retired",
+            ));
+        }
+        let item = self.items.get(session.item_id()).filter(|item| {
+            !self.stopped
+                && self.available
+                && item.view.is_some()
+                && item.binding == session.0.binding
+                && item.menu_path.as_ref() == Some(&session.0.path)
+                && item.menu_path_serial == session.0.path_serial
+        });
+        if item.is_none() {
+            return Err(error(
+                "stale_tray_menu",
+                "The tray owner or exported menu is no longer current",
+            ));
+        }
+        Ok(())
+    }
+
+    fn validate_session_layout(&self, session: &TrayMenuSession) -> Result<(), NativeMethodError> {
+        self.validate_session(session)?;
+        let item = &self.items[session.item_id()];
+        if item.menu.as_ref().is_none_or(|menu| {
+            session.0.observed_layout.get() != Some((item.menu_serial, menu.revision))
+        }) {
+            return Err(error(
+                "stale_tray_menu",
+                "Refresh the native tray menu before using its current layout",
             ));
         }
         Ok(())
@@ -528,15 +647,81 @@ impl TrayController {
         release_bus(&self.state, true, "The tray controller has stopped");
     }
 
+    pub(crate) fn bind_menu(
+        &self,
+        item_id: &str,
+        invalidated: impl FnOnce() + 'static,
+    ) -> Result<TrayMenuSession, NativeMethodError> {
+        let mut state = self.state.borrow_mut();
+        let handle = state.handle(item_id)?;
+        let item = state.items.get_mut(item_id).expect("validated tray handle");
+        let path = item.menu_path.clone().ok_or_else(|| {
+            error(
+                "tray_menu_unavailable",
+                "This tray item does not export a DBusMenu",
+            )
+        })?;
+        let session = TrayMenuSession(Rc::new(TrayMenuSessionState {
+            item_id: item_id.to_owned(),
+            binding: handle.binding,
+            path,
+            path_serial: item.menu_path_serial,
+            active: Cell::new(true),
+            observed_layout: Cell::new(None),
+            cancellable: gio::Cancellable::new(),
+            invalidated: RefCell::new(Some(Box::new(invalidated))),
+        }));
+        item.menu_sessions
+            .retain(|session| session.strong_count() != 0);
+        item.menu_sessions.push(Rc::downgrade(&session.0));
+        Ok(session)
+    }
+
+    pub(crate) fn validate_menu_session(
+        &self,
+        session: &TrayMenuSession,
+    ) -> Result<(), NativeMethodError> {
+        self.state.borrow().validate_session(session)
+    }
+
+    pub(crate) fn get_bound_menu(
+        &self,
+        session: TrayMenuSession,
+        menu_item_id: i32,
+        callback: impl FnOnce(Result<Value, NativeMethodError>) + 'static,
+    ) {
+        self.get_menu_inner(
+            session.item_id().to_owned(),
+            menu_item_id,
+            Some(session),
+            callback,
+        );
+    }
     pub(crate) fn get_menu(
         &self,
         item_id: String,
         menu_item_id: i32,
         callback: impl FnOnce(Result<Value, NativeMethodError>) + 'static,
     ) {
+        self.get_menu_inner(item_id, menu_item_id, None, callback);
+    }
+
+    fn get_menu_inner(
+        &self,
+        item_id: String,
+        menu_item_id: i32,
+        session: Option<TrayMenuSession>,
+        callback: impl FnOnce(Result<Value, NativeMethodError>) + 'static,
+    ) {
         let target = {
             let state = self.state.borrow();
             state.handle(&item_id).and_then(|item| {
+                if let Some(session) = &session {
+                    state.validate_session(session)?;
+                    if menu_item_id != 0 {
+                        state.validate_session_layout(session)?;
+                    }
+                }
                 let cached = &state.items[&item_id];
                 let path = cached.menu_path.clone().ok_or_else(|| {
                     error(
@@ -572,6 +757,8 @@ impl TrayController {
                 item,
                 path,
                 path_serial,
+                session,
+                menu_item_id,
                 callback: Box::new(callback),
             },
             menu_item_id,
@@ -597,20 +784,6 @@ impl TrayController {
         );
     }
 
-    pub(crate) fn context_menu(
-        &self,
-        item_id: String,
-        point: ScreenPoint,
-        callback: impl FnOnce(Result<Value, NativeMethodError>) + 'static,
-    ) {
-        self.item_action(
-            item_id,
-            "ContextMenu",
-            (point.x, point.y).to_variant(),
-            callback,
-        );
-    }
-
     pub(crate) fn scroll(
         &self,
         item_id: String,
@@ -626,6 +799,22 @@ impl TrayController {
         );
     }
 
+    pub(crate) fn activate_bound_menu(
+        &self,
+        session: TrayMenuSession,
+        menu_item_id: i32,
+        revision: u32,
+        callback: impl FnOnce(Result<Value, NativeMethodError>) + 'static,
+    ) {
+        self.activate_menu_inner(
+            session.item_id().to_owned(),
+            menu_item_id,
+            revision,
+            Some(session),
+            callback,
+        );
+    }
+
     pub(crate) fn activate_menu(
         &self,
         item_id: String,
@@ -633,9 +822,23 @@ impl TrayController {
         revision: u32,
         callback: impl FnOnce(Result<Value, NativeMethodError>) + 'static,
     ) {
+        self.activate_menu_inner(item_id, menu_item_id, revision, None, callback);
+    }
+
+    fn activate_menu_inner(
+        &self,
+        item_id: String,
+        menu_item_id: i32,
+        revision: u32,
+        session: Option<TrayMenuSession>,
+        callback: impl FnOnce(Result<Value, NativeMethodError>) + 'static,
+    ) {
         let target = {
             let state = self.state.borrow();
             state.handle(&item_id).and_then(|handle| {
+                if let Some(session) = &session {
+                    state.validate_session_layout(session)?;
+                }
                 let item = &state.items[&item_id];
                 let path = item.menu_path.clone().ok_or_else(|| {
                     error(
@@ -664,11 +867,22 @@ impl TrayController {
         let params = (menu_item_id, "clicked", 0_i32.to_variant(), timestamp).to_variant();
         let weak = Rc::downgrade(&self.state);
         let completion_handle = handle.clone();
+        let cancellable = session
+            .as_ref()
+            .map_or(&handle.cancellable, TrayMenuSession::cancellable)
+            .clone();
         handle.connection.call(Some(&handle.binding.owner), &path, MENU_INTERFACE, "Event",
             Some(&params), None, gio::DBusCallFlags::NONE, CALL_TIMEOUT,
-            Some(&handle.cancellable), move |result| {
-                let outcome = action_completion(&weak, &completion_handle, result)
-                    .map(|()| json!({"itemId": completion_handle.id, "menuItemId": menu_item_id, "revision": revision}));
+            Some(&cancellable), move |result| {
+                let outcome = action_completion(&weak, &completion_handle, result).and_then(|()| {
+                    if let Some(session) = &session {
+                        let state = weak.upgrade().ok_or_else(|| error("tray_unavailable", "The tray controller has stopped"))?;
+                        // The action may itself update the layout; its pre-dispatch revision check
+                        // must not reinterpret a committed successful Event as a stale action.
+                        state.borrow().validate_session(session)?;
+                    }
+                    Ok(json!({"itemId": completion_handle.id, "menuItemId": menu_item_id, "revision": revision}))
+                });
                 callback(outcome);
             });
     }
@@ -2015,7 +2229,7 @@ fn item_view(
         .map(|value| {
             let title = value.child_value(2);
             let description = value.child_value(3);
-            let title = plain_text(title.str().unwrap_or(""));
+            let title = literal_text(title.str().unwrap_or(""));
             let description = plain_text(description.str().unwrap_or(""));
             if title.is_empty() {
                 description
@@ -2038,9 +2252,9 @@ fn item_view(
     };
     Some(ItemView {
         id: id.into(),
-        title: plain_text(title),
+        title: literal_text(title),
         status: status.into(),
-        category: plain_text(category),
+        category: literal_text(category),
         is_menu: props
             .get("ItemIsMenu")
             .and_then(|value| value.get::<bool>())
@@ -2114,6 +2328,16 @@ fn item_icon(props: &Properties, name: &str, pixmap: &str) -> Option<Icon> {
         candidate.2,
         candidate.3.fixed_array::<u8>().ok()?,
     )
+}
+
+fn literal_text(text: &str) -> String {
+    let mut output = String::with_capacity(text.len().min(MAX_TEXT_CHARS * 4));
+    output.extend(
+        text.chars()
+            .filter(|ch| !ch.is_control() || matches!(*ch, '\n' | '\t'))
+            .take(MAX_TEXT_CHARS),
+    );
+    output
 }
 
 fn plain_text(text: &str) -> String {
@@ -2364,6 +2588,9 @@ fn validate_menu_request(
     let serial = {
         let state = state.borrow();
         state.validate_handle(&request.item)?;
+        if let Some(session) = &request.session {
+            state.validate_session(session)?;
+        }
         let item = &state.items[&request.item.id];
         if item.menu_path_serial != request.path_serial
             || item.menu_path.as_ref() != Some(&request.path)
@@ -2385,7 +2612,11 @@ fn prepare_menu_node(request: MenuRequest, id: i32) {
     }
     let connection = request.item.connection.clone();
     let owner = request.item.binding.owner.clone();
-    let cancellable = request.item.cancellable.clone();
+    let cancellable = request
+        .session
+        .as_ref()
+        .map_or(&request.item.cancellable, TrayMenuSession::cancellable)
+        .clone();
     let path = request.path.clone();
     connection.call(
         Some(&owner),
@@ -2424,7 +2655,11 @@ fn fetch_menu_layout(request: MenuRequest) {
     };
     let connection = request.item.connection.clone();
     let owner = request.item.binding.owner.clone();
-    let cancellable = request.item.cancellable.clone();
+    let cancellable = request
+        .session
+        .as_ref()
+        .map_or(&request.item.cancellable, TrayMenuSession::cancellable)
+        .clone();
     let path = request.path.clone();
     let params = (0_i32, -1_i32, Vec::<String>::new()).to_variant();
     connection.call(Some(&owner), &path, MENU_INTERFACE, "GetLayout", Some(&params),
@@ -2441,6 +2676,13 @@ fn fetch_menu_layout(request: MenuRequest) {
                 .and_then(|reply| parse_menu(&reply));
             match layout {
                 Ok(layout) => {
+                    if let Some(session) = &request.session {
+                        if let Err(failure) = layout.validate_read(request.menu_item_id) {
+                            (request.callback)(Err(failure));
+                            return;
+                        }
+                        session.0.observed_layout.set(Some((serial, layout.revision)));
+                    }
                     let result = json!({"itemId": request.item.id, "revision": layout.revision, "root": layout.root});
                     state.borrow_mut().items.get_mut(&request.item.id).unwrap().menu = Some(layout);
                     (request.callback)(Ok(result));
@@ -2514,6 +2756,130 @@ mod tests {
             revision.to_variant(),
             node(0, Properties::new(), children),
         ])
+    }
+
+    fn bound_session_state() -> (State, TrayMenuSession) {
+        let binding = Binding {
+            owner: ":1.42".into(),
+            path: "/Item".into(),
+        };
+        let mut item = Item::new(binding.clone());
+        item.menu_path = Some("/Menu".into());
+        item.view = item_view(
+            "bound",
+            &Properties::from([("Status".into(), "Active".to_variant())]),
+            &Properties::new(),
+            None,
+        );
+        item.menu =
+            Some(parse_menu(&layout(7, vec![node(1, Properties::new(), Vec::new())])).unwrap());
+        let session = TrayMenuSession(Rc::new(TrayMenuSessionState {
+            item_id: "bound".into(),
+            binding,
+            path: "/Menu".into(),
+            path_serial: 0,
+            active: Cell::new(true),
+            observed_layout: Cell::new(Some((0, 7))),
+            cancellable: gio::Cancellable::new(),
+            invalidated: RefCell::new(None),
+        }));
+        item.menu_sessions.push(Rc::downgrade(&session.0));
+        let mut state = State::new();
+        state.available = true;
+        state.items.insert("bound".into(), item);
+        (state, session)
+    }
+
+    #[test]
+    fn bound_menu_rejects_owner_and_exported_path_epoch_changes() {
+        let (mut state, session) = bound_session_state();
+        assert!(state.validate_session_layout(&session).is_ok());
+        state.items.get_mut("bound").unwrap().binding.owner = ":1.43".into();
+        assert_eq!(
+            state.validate_session(&session).unwrap_err().code,
+            "stale_tray_menu"
+        );
+        state.items.get_mut("bound").unwrap().binding.owner = ":1.42".into();
+        state.items.get_mut("bound").unwrap().menu_path_serial = 1;
+        assert_eq!(
+            state.validate_session(&session).unwrap_err().code,
+            "stale_tray_menu"
+        );
+        state.items.get_mut("bound").unwrap().menu_path_serial = 0;
+        state.items.get_mut("bound").unwrap().menu_path = Some("/Other".into());
+        assert_eq!(
+            state.validate_session(&session).unwrap_err().code,
+            "stale_tray_menu"
+        );
+    }
+
+    #[test]
+    fn bound_menu_layout_invalidation_requires_refresh_even_if_revision_is_reused() {
+        let (mut state, session) = bound_session_state();
+        state.items.get_mut("bound").unwrap().invalidate_menu();
+        assert!(session.is_active());
+        assert_eq!(
+            state.validate_session_layout(&session).unwrap_err().code,
+            "stale_tray_menu"
+        );
+        state.items.get_mut("bound").unwrap().menu =
+            Some(parse_menu(&layout(7, vec![node(1, Properties::new(), Vec::new())])).unwrap());
+        assert_eq!(
+            state.validate_session_layout(&session).unwrap_err().code,
+            "stale_tray_menu"
+        );
+        session.0.observed_layout.set(Some((1, 7)));
+        assert!(state.validate_session_layout(&session).is_ok());
+    }
+
+    #[test]
+    fn native_menu_retirement_cancels_only_its_lease_and_item_loss_retires_other_leases() {
+        let (state, session) = bound_session_state();
+        let item_cancel = state.items["bound"].cancellable.clone();
+        session.retire();
+        session.retire();
+        assert!(!session.is_active());
+        assert!(session.cancellable().is_cancelled());
+        assert!(!item_cancel.is_cancelled());
+        assert_eq!(
+            state.validate_session(&session).unwrap_err().code,
+            "stale_tray_menu"
+        );
+        let (mut state, session) = bound_session_state();
+        state.items.remove("bound");
+        assert!(!session.is_active());
+        assert!(session.cancellable().is_cancelled());
+    }
+
+    #[test]
+    fn exported_menu_loss_retires_native_session_without_waiting_for_idle_cleanup() {
+        let (mut state, session) = bound_session_state();
+        state.items.get_mut("bound").unwrap().invalidate_menu_path();
+        assert!(!session.is_active());
+        assert!(session.cancellable().is_cancelled());
+        assert_eq!(
+            state.validate_session(&session).unwrap_err().code,
+            "stale_tray_menu"
+        );
+    }
+
+    #[test]
+    fn bound_menu_read_rejects_a_disabled_or_hidden_root() {
+        for property in ["enabled", "visible"] {
+            let disabled_root = glib::Variant::tuple_from_iter([
+                1_u32.to_variant(),
+                node(
+                    0,
+                    Properties::from([(property.into(), false.to_variant())]),
+                    Vec::new(),
+                ),
+            ]);
+            let menu = parse_menu(&disabled_root).unwrap();
+            assert_eq!(
+                menu.validate_read(0).unwrap_err().code,
+                "tray_menu_item_disabled"
+            );
+        }
     }
 
     #[test]
@@ -2835,14 +3201,44 @@ mod tests {
     }
 
     #[test]
-    fn observed_properties_never_expose_paths_or_markup_and_decode_argb() {
+    fn item_names_and_tooltip_titles_preserve_literal_text_without_menu_mnemonics() {
+        let raw = "<Player> &lt;Player&gt; &amp;amp; B _name __name\x1b\t\n";
+        let expected = "<Player> &lt;Player&gt; &amp;amp; B _name __name\t\n";
         let tooltip = (
-            "ignored",
+            "",
             Vec::<(i32, i32, Vec<u8>)>::new(),
-            "<b>Title</b>",
-            "A &amp; B<br/>plain",
+            raw,
+            "<b>Body</b> &amp; text",
         )
             .to_variant();
+        let mut props = Properties::from([
+            ("Status".into(), "Active".to_variant()),
+            ("Title".into(), raw.to_variant()),
+            ("Id".into(), "_fallback__ &lt;Id&gt;".to_variant()),
+            ("ToolTip".into(), tooltip),
+        ]);
+        let view = item_view("opaque", &props, &Properties::new(), None).unwrap();
+        assert_eq!(view.title, expected);
+        assert_eq!(view.tooltip, format!("{expected}\nBody & text"));
+        props.remove("Title");
+        let fallback = item_view("opaque", &props, &Properties::new(), None).unwrap();
+        assert_eq!(fallback.title, "_fallback__ &lt;Id&gt;");
+    }
+
+    #[test]
+    fn item_names_are_bounded_by_unicode_characters_not_bytes() {
+        let expected = "界".repeat(MAX_TEXT_CHARS);
+        let name = format!("{expected}overflow");
+        let props = Properties::from([
+            ("Status".into(), "Active".to_variant()),
+            ("Title".into(), name.to_variant()),
+        ]);
+        let view = item_view("opaque", &props, &Properties::new(), None).unwrap();
+        assert_eq!(view.title, expected);
+    }
+
+    #[test]
+    fn observed_properties_keep_paths_private_and_decode_argb() {
         let menu_path = glib::variant::ObjectPath::try_from("/Menu").unwrap();
         let props = Properties::from([
             ("Status".into(), "NeedsAttention".to_variant()),
@@ -2850,7 +3246,6 @@ mod tests {
             ("Title".into(), "Example".to_variant()),
             ("ItemIsMenu".into(), true.to_variant()),
             ("Menu".into(), menu_path.to_variant()),
-            ("ToolTip".into(), tooltip),
             ("IconName".into(), "/tmp/untrusted.png".to_variant()),
             ("IconThemePath".into(), "/tmp/unchecked-theme".to_variant()),
             (
@@ -2859,8 +3254,6 @@ mod tests {
             ),
         ]);
         let view = item_view("opaque", &props, &Properties::new(), None).unwrap();
-        assert!(!view.tooltip.contains("<b>"));
-        assert!(!view.tooltip.contains("<br/>"));
         assert!(view.has_menu);
         assert!(view.is_menu);
         assert_eq!(view.icon.as_ref().unwrap().rgba, "ESIz/w==");

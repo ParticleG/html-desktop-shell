@@ -8,6 +8,7 @@ mod shell_host;
 mod surface;
 mod surface_manager;
 mod surface_window;
+mod tray_overlay;
 mod web_security;
 
 use crate::shell_host::ShellHost;

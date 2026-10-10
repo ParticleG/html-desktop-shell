@@ -45,7 +45,7 @@ function mountControls(items: TrayItem[], methods = trayMethods) {
   const pinia = createPinia();
   const shell = useShellStore(pinia);
   shell.hostInfo = {
-    shell: "html-desktop-shell", backend: "wayland-layer-shell", bridgeVersion: 5,
+    shell: "html-desktop-shell", backend: "wayland-layer-shell", bridgeVersion: 6,
     surface: { kind: "quickPanel", monitorIndex: 0, output: "DP-1" },
   };
   shell.state = { tray: { available: true, items } };

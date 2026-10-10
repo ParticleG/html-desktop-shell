@@ -38,9 +38,6 @@ pub(crate) enum DesktopRequest {
     SecondaryActivateTrayItem {
         item_id: String,
     },
-    ShowTrayItemContextMenu {
-        item_id: String,
-    },
     ScrollTrayItem {
         item_id: String,
         delta: i32,

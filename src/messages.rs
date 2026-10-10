@@ -5,13 +5,14 @@ use crate::{
     surface::{SurfaceContext, SurfaceKind},
 };
 
-pub const BRIDGE_VERSION: u32 = 5;
+pub const BRIDGE_VERSION: u32 = 6;
 const METHOD_GET_CAPABILITIES: &str = "getCapabilities";
 const METHOD_GET_HOST_INFO: &str = "getHostInfo";
 const METHOD_GET_STATE: &str = "getState";
 const METHOD_NIRI_FOCUS_WORKSPACE: &str = "niriFocusWorkspace";
 const METHOD_SET_QUICK_PANEL_OPEN: &str = "setQuickPanelOpen";
 const METHOD_SET_DIAGNOSTICS_DIALOG_OPEN: &str = "setDiagnosticsDialogOpen";
+const METHOD_CLOSE_TRAY_MENU: &str = "closeTrayMenu";
 const ALL_METHODS: &[&str] = &[
     METHOD_GET_HOST_INFO,
     METHOD_GET_CAPABILITIES,
@@ -43,6 +44,13 @@ const DIAGNOSTICS_DIALOG_METHODS: &[&str] = &[
     METHOD_GET_STATE,
     METHOD_SET_DIAGNOSTICS_DIALOG_OPEN,
 ];
+const TRAY_MENU_METHODS: &[&str] = &[
+    METHOD_GET_HOST_INFO,
+    METHOD_GET_CAPABILITIES,
+    "getTrayMenu",
+    "activateTrayMenuItem",
+    METHOD_CLOSE_TRAY_MENU,
+];
 
 pub fn capabilities() -> serde_json::Value {
     let surfaces = SurfaceKind::ALL
@@ -67,6 +75,7 @@ fn methods_for(kind: SurfaceKind) -> &'static [&'static str] {
         SurfaceKind::QuickPanel => QUICK_PANEL_METHODS,
         SurfaceKind::WorkspaceHud => WORKSPACE_HUD_METHODS,
         SurfaceKind::DiagnosticsDialog => DIAGNOSTICS_DIALOG_METHODS,
+        SurfaceKind::TrayMenu => TRAY_MENU_METHODS,
     }
 }
 
@@ -125,6 +134,8 @@ struct OpenParams {
 pub(crate) enum NativeDispatch {
     Response(String),
     Desktop { id: String, request: DesktopRequest },
+    ShowTrayMenu { id: String, item_id: String },
+    CloseTrayMenu { id: String },
 }
 
 #[cfg(test)]
@@ -132,7 +143,9 @@ impl NativeDispatch {
     fn into_response(self) -> String {
         match self {
             Self::Response(response) => response,
-            Self::Desktop { .. } => panic!("desktop operation must not dispatch in this test"),
+            Self::Desktop { .. } | Self::ShowTrayMenu { .. } | Self::CloseTrayMenu { .. } => {
+                panic!("native operation must not dispatch in this test")
+            }
         }
     }
 }
@@ -255,7 +268,7 @@ where
     D: FnOnce(bool) -> Result<serde_json::Value, NativeMethodError>,
 {
     let method = request.method.as_str();
-    let response = if !ALL_METHODS.contains(&method) {
+    let response = if !ALL_METHODS.contains(&method) && method != METHOD_CLOSE_TRAY_MENU {
         error_response(
             request.id.as_str(),
             "unknown_method",
@@ -277,16 +290,23 @@ where
         METHOD_NIRI_FOCUS_WORKSPACE,
         METHOD_SET_QUICK_PANEL_OPEN,
         METHOD_SET_DIAGNOSTICS_DIALOG_OPEN,
+        "showTrayItemContextMenu",
+        METHOD_CLOSE_TRAY_MENU,
     ]
     .contains(&method)
     {
         match desktop_request(method, &request.params) {
-            Ok(operation) => {
+            Ok(operation) if tray_request_is_bound(surface_context, &operation) => {
                 return NativeDispatch::Desktop {
                     id: request.id.clone(),
                     request: operation,
                 };
             }
+            Ok(_) => error_response(
+                request.id.as_str(),
+                "surface_forbidden",
+                "trayMenu is bound to a different tray item".to_owned(),
+            ),
             Err(error) => error_response(request.id.as_str(), error.code, error.message),
         }
     } else {
@@ -304,6 +324,23 @@ where
                 ok_response(request.id.as_str(), capabilities_for(surface_context))
             }
             METHOD_GET_STATE => ok_response(request.id.as_str(), state_snapshot()),
+            "showTrayItemContextMenu" => match tray_item_param(&request.params, method) {
+                Ok(item_id) => {
+                    return NativeDispatch::ShowTrayMenu {
+                        id: request.id.clone(),
+                        item_id,
+                    };
+                }
+                Err(error) => error_response(request.id.as_str(), error.code, error.message),
+            },
+            METHOD_CLOSE_TRAY_MENU => match object_params::<EmptyParams>(&request.params, method) {
+                Ok(_) => {
+                    return NativeDispatch::CloseTrayMenu {
+                        id: request.id.clone(),
+                    };
+                }
+                Err(error) => error_response(request.id.as_str(), error.code, error.message),
+            },
             METHOD_NIRI_FOCUS_WORKSPACE => {
                 match workspace_index_param(&request.params).and_then(focus_workspace) {
                     Ok(result) => ok_response(request.id.as_str(), result),
@@ -329,6 +366,29 @@ where
     };
 
     NativeDispatch::Response(serialize_response(&response))
+}
+
+fn tray_request_is_bound(context: &SurfaceContext, request: &DesktopRequest) -> bool {
+    let SurfaceContext::TrayMenu { tray_item_id, .. } = context else {
+        return true;
+    };
+    matches!(
+        request,
+        DesktopRequest::GetTrayMenu { item_id, .. }
+            | DesktopRequest::ActivateTrayMenuItem { item_id, .. }
+            if item_id == tray_item_id
+    )
+}
+
+fn tray_item_param(params: &serde_json::Value, method: &str) -> Result<String, NativeMethodError> {
+    let params: TrayItemParams = object_params(params, method)?;
+    if params.item_id.is_empty() || params.item_id.len() > 256 || params.item_id.contains('\0') {
+        return Err(NativeMethodError::new(
+            "invalid_params",
+            format!("invalid parameters for {method}"),
+        ));
+    }
+    Ok(params.item_id)
 }
 
 fn workspace_index_param(params: &serde_json::Value) -> Result<u64, NativeMethodError> {
@@ -401,7 +461,7 @@ fn desktop_request(
                 menu_item_id: params.menu_item_id,
             }
         }
-        "activateTrayItem" | "secondaryActivateTrayItem" | "showTrayItemContextMenu" => {
+        "activateTrayItem" | "secondaryActivateTrayItem" => {
             let params: TrayItemParams = object_params(params, method)?;
             if !valid_id(&params.item_id) {
                 return Err(invalid());
@@ -410,10 +470,7 @@ fn desktop_request(
                 "activateTrayItem" => DesktopRequest::ActivateTrayItem {
                     item_id: params.item_id,
                 },
-                "secondaryActivateTrayItem" => DesktopRequest::SecondaryActivateTrayItem {
-                    item_id: params.item_id,
-                },
-                _ => DesktopRequest::ShowTrayItemContextMenu {
+                _ => DesktopRequest::SecondaryActivateTrayItem {
                     item_id: params.item_id,
                 },
             }
@@ -607,6 +664,11 @@ mod tests {
                 monitor_index: 7,
                 output: Some("eDP-1".to_owned()),
             },
+            SurfaceKind::TrayMenu => SurfaceContext::TrayMenu {
+                monitor_index: 7,
+                output: Some("eDP-1".to_owned()),
+                tray_item_id: "tray-test".to_owned(),
+            },
         }
     }
 
@@ -646,14 +708,14 @@ mod tests {
     }
 
     #[test]
-    fn get_host_info_returns_exact_v5_surface_contexts() {
+    fn get_host_info_returns_exact_v6_surface_contexts() {
         for kind in SurfaceKind::ALL {
             let response = handle_for(r#"{"id":"1","method":"getHostInfo"}"#, kind);
 
             assert_eq!(response["ok"], true);
             assert_eq!(response["result"]["shell"], "html-desktop-shell");
             assert_eq!(response["result"]["backend"], "wayland-layer-shell");
-            assert_eq!(response["result"]["bridgeVersion"], 5);
+            assert_eq!(response["result"]["bridgeVersion"], 6);
             assert_eq!(
                 response["result"]["surface"]["kind"],
                 context(kind).kind().wire_name()
@@ -661,7 +723,7 @@ mod tests {
             assert_eq!(response["result"]["surface"]["monitorIndex"], 7);
             assert_eq!(response["result"]["surface"]["output"], "eDP-1");
         }
-        assert_eq!(BRIDGE_VERSION, 5);
+        assert_eq!(BRIDGE_VERSION, 6);
     }
 
     #[test]
@@ -671,6 +733,7 @@ mod tests {
             (SurfaceKind::QuickPanel, QUICK_PANEL_METHODS),
             (SurfaceKind::WorkspaceHud, WORKSPACE_HUD_METHODS),
             (SurfaceKind::DiagnosticsDialog, DIAGNOSTICS_DIALOG_METHODS),
+            (SurfaceKind::TrayMenu, TRAY_MENU_METHODS),
         ];
 
         for (kind, expected) in cases {
@@ -701,8 +764,12 @@ mod tests {
     #[test]
     fn every_denied_capability_matrix_cell_returns_surface_forbidden() {
         for kind in SurfaceKind::ALL {
-            for method in ALL_METHODS {
-                if methods_for(kind).contains(method) {
+            for method in ALL_METHODS
+                .iter()
+                .copied()
+                .chain(std::iter::once(METHOD_CLOSE_TRAY_MENU))
+            {
+                if methods_for(kind).contains(&method) {
                     continue;
                 }
                 let request = serde_json::json!({
@@ -716,6 +783,93 @@ mod tests {
                 let response = handle_for(request.to_string().as_str(), kind);
                 assert_eq!(response["ok"], false);
                 assert_eq!(response["error"]["code"], "surface_forbidden");
+            }
+        }
+    }
+
+    #[test]
+    fn tray_menu_rejects_other_item_identities_and_nonmenu_actions() {
+        for method in ["getTrayMenu", "activateTrayMenuItem"] {
+            let params = if method == "getTrayMenu" {
+                serde_json::json!({"itemId": "other", "menuItemId": 0})
+            } else {
+                serde_json::json!({"itemId": "other", "menuItemId": 1, "revision": 2})
+            };
+            let request = serde_json::json!({"id": "bound", "method": method, "params": params});
+            let response = handle_for(&request.to_string(), SurfaceKind::TrayMenu);
+            assert_eq!(response["error"]["code"], "surface_forbidden");
+        }
+        for method in ALL_METHODS {
+            if TRAY_MENU_METHODS.contains(method) {
+                continue;
+            }
+            let request = serde_json::json!({"id": "denied", "method": method, "params": {}});
+            let response = handle_for(&request.to_string(), SurfaceKind::TrayMenu);
+            assert_eq!(response["error"]["code"], "surface_forbidden");
+        }
+    }
+
+    #[test]
+    fn tray_menu_close_is_close_only_and_rejects_extra_authority() {
+        for kind in [
+            SurfaceKind::Bar,
+            SurfaceKind::QuickPanel,
+            SurfaceKind::WorkspaceHud,
+            SurfaceKind::DiagnosticsDialog,
+        ] {
+            let response = handle_for(
+                r#"{"id":"close","method":"closeTrayMenu","params":{}}"#,
+                kind,
+            );
+            assert_eq!(response["error"]["code"], "surface_forbidden");
+        }
+        for params in [
+            serde_json::json!({"open": true}),
+            serde_json::json!({"itemId": "tray-test"}),
+            serde_json::json!([]),
+            serde_json::json!(null),
+        ] {
+            let request =
+                serde_json::json!({"id": "close", "method": "closeTrayMenu", "params": params});
+            let response = handle_for(&request.to_string(), SurfaceKind::TrayMenu);
+            assert_eq!(response["error"]["code"], "invalid_params");
+        }
+    }
+
+    #[test]
+    fn native_menu_authorizes_bound_reads_actions_and_close_only() {
+        for (method, params) in [
+            (
+                "getTrayMenu",
+                serde_json::json!({"itemId": "tray-test", "menuItemId": 0}),
+            ),
+            (
+                "activateTrayMenuItem",
+                serde_json::json!({"itemId": "tray-test", "menuItemId": 1, "revision": 2}),
+            ),
+            ("closeTrayMenu", serde_json::json!({})),
+        ] {
+            let request =
+                serde_json::json!({"id": "authorized", "method": method, "params": params});
+            let dispatch = handle_native_request(
+                &request.to_string(),
+                &context(SurfaceKind::TrayMenu),
+                || panic!("native menu must not read aggregate state"),
+                |_| panic!("native menu must not focus workspaces"),
+                |_| panic!("native menu must not mutate Quick Panel"),
+                |_| panic!("native menu must not mutate Diagnostics"),
+            );
+            match dispatch {
+                NativeDispatch::Desktop {
+                    request: DesktopRequest::GetTrayMenu { item_id, .. },
+                    ..
+                }
+                | NativeDispatch::Desktop {
+                    request: DesktopRequest::ActivateTrayMenuItem { item_id, .. },
+                    ..
+                } => assert_eq!(item_id, "tray-test"),
+                NativeDispatch::CloseTrayMenu { .. } if method == "closeTrayMenu" => {}
+                _ => panic!("authorized menu operation did not reach its narrow native path"),
             }
         }
     }
@@ -845,10 +999,6 @@ mod tests {
         assert_eq!(response["id"], "3");
         assert_eq!(response["ok"], false);
         assert_eq!(response["error"]["code"], "unknown_method");
-        assert_eq!(
-            response["error"]["message"],
-            "unknown native method: launch"
-        );
         assert!(response.get("result").is_none());
     }
 

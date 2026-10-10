@@ -74,6 +74,10 @@ export function activateTrayMenuItem(itemId, menuItemId, revision) {
   return request("activateTrayMenuItem", { itemId, menuItemId, revision });
 }
 
+export function closeTrayMenu() {
+  return request("closeTrayMenu", {});
+}
+
 export function getNotifications() {
   return request("getNotifications", {});
 }

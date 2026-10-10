@@ -4,14 +4,16 @@ pub enum SurfaceKind {
     QuickPanel,
     WorkspaceHud,
     DiagnosticsDialog,
+    TrayMenu,
 }
 
 impl SurfaceKind {
-    pub const ALL: [Self; 4] = [
+    pub const ALL: [Self; 5] = [
         Self::Bar,
         Self::QuickPanel,
         Self::WorkspaceHud,
         Self::DiagnosticsDialog,
+        Self::TrayMenu,
     ];
 
     pub const fn wire_name(self) -> &'static str {
@@ -20,6 +22,7 @@ impl SurfaceKind {
             Self::QuickPanel => "quickPanel",
             Self::WorkspaceHud => "workspaceHud",
             Self::DiagnosticsDialog => "diagnosticsDialog",
+            Self::TrayMenu => "trayMenu",
         }
     }
 
@@ -29,6 +32,7 @@ impl SurfaceKind {
             Self::QuickPanel => "html-desktop-shell-quick-panel",
             Self::WorkspaceHud => "html-desktop-shell-workspace-hud",
             Self::DiagnosticsDialog => "html-desktop-shell-diagnostics",
+            Self::TrayMenu => "html-desktop-shell-tray-menu",
         }
     }
 }
@@ -77,6 +81,14 @@ pub enum SurfaceContext {
         monitor_index: u32,
         output: Option<String>,
     },
+    #[serde(rename = "trayMenu")]
+    TrayMenu {
+        #[serde(rename = "monitorIndex")]
+        monitor_index: u32,
+        output: Option<String>,
+        #[serde(rename = "trayItemId")]
+        tray_item_id: String,
+    },
 }
 
 impl SurfaceContext {
@@ -86,6 +98,7 @@ impl SurfaceContext {
             Self::QuickPanel { .. } => SurfaceKind::QuickPanel,
             Self::WorkspaceHud { .. } => SurfaceKind::WorkspaceHud,
             Self::DiagnosticsDialog { .. } => SurfaceKind::DiagnosticsDialog,
+            Self::TrayMenu { .. } => SurfaceKind::TrayMenu,
         }
     }
 
@@ -94,7 +107,8 @@ impl SurfaceContext {
             Self::Bar { monitor_index, .. }
             | Self::QuickPanel { monitor_index, .. }
             | Self::WorkspaceHud { monitor_index, .. }
-            | Self::DiagnosticsDialog { monitor_index, .. } => *monitor_index,
+            | Self::DiagnosticsDialog { monitor_index, .. }
+            | Self::TrayMenu { monitor_index, .. } => *monitor_index,
         }
     }
 
@@ -103,7 +117,8 @@ impl SurfaceContext {
             Self::Bar { output, .. }
             | Self::QuickPanel { output, .. }
             | Self::WorkspaceHud { output, .. }
-            | Self::DiagnosticsDialog { output, .. } => output.as_deref(),
+            | Self::DiagnosticsDialog { output, .. }
+            | Self::TrayMenu { output, .. } => output.as_deref(),
         }
     }
 
@@ -187,6 +202,19 @@ mod tests {
                     "kind": "diagnosticsDialog",
                     "monitorIndex": 4,
                     "output": null,
+                }),
+            ),
+            (
+                SurfaceContext::TrayMenu {
+                    monitor_index: 5,
+                    output: Some("DP-3".to_owned()),
+                    tray_item_id: "tray-1-8".to_owned(),
+                },
+                serde_json::json!({
+                    "kind": "trayMenu",
+                    "monitorIndex": 5,
+                    "output": "DP-3",
+                    "trayItemId": "tray-1-8",
                 }),
             ),
         ];

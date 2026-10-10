@@ -85,7 +85,7 @@ describe("QuickPanelView mounted interactions", () => {
     shell.hostInfo = {
       shell: "html-desktop-shell",
       backend: "wayland-layer-shell",
-      bridgeVersion: 5,
+      bridgeVersion: 6,
       surface: { kind: "quickPanel", monitorIndex: 0, output: "DP-3" },
     };
     shell.capabilities = {
