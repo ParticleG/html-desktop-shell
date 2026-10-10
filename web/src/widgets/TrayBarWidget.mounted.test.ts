@@ -165,6 +165,41 @@ describe("TrayBarWidget native-only interactions", () => {
     expect(document.body.querySelector(".p-menu, .p-tieredmenu, .p-contextmenu")).toBeNull();
   });
 
+  test("handles contextual keyboard shortcuts without taking over bare F10", async () => {
+    const requests: RequestEnvelope[] = [];
+    window.webkit = {
+      messageHandlers: {
+        shell: {
+          postMessage(request) {
+            requests.push(request);
+            return JSON.stringify({ id: request.id, ok: true, result: null });
+          },
+        },
+      },
+    };
+    const { wrapper } = mountWidget([item("player")]);
+    const button = wrapper.get('[data-tray-id="player"]').element;
+    const bareF10 = new KeyboardEvent("keydown", { key: "F10", bubbles: true, cancelable: true });
+    button.dispatchEvent(bareF10);
+    await settle();
+    expect(bareF10.defaultPrevented).toBe(false);
+    expect(requests).toEqual([]);
+
+    for (const key of [
+      { key: "F10", shiftKey: true },
+      { key: "ContextMenu" },
+    ]) {
+      const event = new KeyboardEvent("keydown", { ...key, bubbles: true, cancelable: true });
+      button.dispatchEvent(event);
+      await settle();
+      expect(event.defaultPrevented).toBe(true);
+      expect(wrapper.find('[role="alert"]').exists()).toBe(false);
+    }
+    expect(requests.map((request) => request.method)).toEqual([
+      "showTrayItemContextMenu", "showTrayItemContextMenu",
+    ]);
+  });
+
   test("does not fall back to Activate for menu-only items and guards unavailable operations", async () => {
     const requests: RequestEnvelope[] = [];
     installHandler(requests);

@@ -36,7 +36,9 @@ import type { WidgetProps } from "./types";
 const props = defineProps<WidgetProps>();
 const { t } = useI18n();
 const workspaces = computed(() => visibleWorkspaces(props.state, props.hostInfo?.surface.output));
-const workspacesAvailable = computed(() => props.state?.niri?.workspaces?.available === true);
+const workspacesAvailable = computed(() =>
+  props.state?.niri?.workspaces?.available === true && Boolean(props.hostInfo?.surface.output)
+);
 
 function focusWorkspaceFromEvent(workspace: NiriWorkspace): void {
   const workspaceIndex = workspaceIndexForFocus(workspace);

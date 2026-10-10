@@ -78,4 +78,32 @@ describe("WorkspacesWidget mounted interactions", () => {
     expect(empty.text()).toContain("workspaces: none");
     expect(empty.find("button").exists()).toBe(false);
   });
+
+  test("never shows foreign-output duplicate indices while native output is unknown", async () => {
+    const { wrapper, focusWorkspaceFromButton } = mountWidget({
+      niri: {
+        workspaces: {
+          available: true,
+          items: [
+            { id: 41, index: 1, output: "DP-1" },
+            { id: 42, index: 2, output: "DP-1" },
+            { id: 71, index: 1, output: "DP-2" },
+            { id: 72, index: 2, output: "DP-2" },
+          ],
+        },
+      },
+    });
+    expect(wrapper.findAll("button").map((button) => button.text())).toEqual(["1", "2"]);
+    await wrapper.setProps({
+      hostInfo: {
+        shell: "html-desktop-shell",
+        backend: "wayland-layer-shell",
+        bridgeVersion: 6,
+        surface: { kind: "bar", monitorIndex: 0, output: null },
+      },
+    });
+    expect(wrapper.find("button").exists()).toBe(false);
+    expect(wrapper.text()).toContain("workspaces: unavailable");
+    expect(focusWorkspaceFromButton).not.toHaveBeenCalled();
+  });
 });

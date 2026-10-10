@@ -446,8 +446,9 @@ body {
   padding-left: 12px;
 }
 
-.tray-menu-node > button {
+.tray-menu-node > button.p-button {
   justify-content: flex-start;
+  overflow-wrap: anywhere;
   text-align: left;
   white-space: normal;
   width: 100%;
@@ -536,8 +537,28 @@ body {
 }
 
 .tray-bar-error {
-  max-width: 20ch;
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.surface-tray-menu {
+  align-items: flex-start;
+  background: rgba(12, 14, 20, 0.92);
+  box-sizing: border-box;
+  display: flex;
+}
+
+.tray-menu-content {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 100%;
+  min-width: 0;
+  overflow: auto;
+  padding: 8px;
+  width: 100%;
+}
+
+.tray-menu-controls {
+  justify-content: flex-end;
 }

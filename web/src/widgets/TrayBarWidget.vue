@@ -13,6 +13,7 @@
       text
       @click="activatePrimary(item.id)"
       @contextmenu.prevent="showNativeMenu(item.id)"
+      @keydown="handleMenuKeyDown($event, item.id)"
       @auxclick.prevent="activateSecondary($event, item.id)"
       @wheel.prevent="scrollItem($event, item.id)"
     >
@@ -71,6 +72,14 @@ async function showNativeMenu(itemId: string): Promise<void> {
   if (items.value.some((item) => item.id === itemId) && shell.hasCapability("showTrayItemContextMenu")) {
     await run(() => showTrayItemContextMenu(itemId));
   }
+}
+
+function handleMenuKeyDown(event: KeyboardEvent, itemId: string): void {
+  if (event.key !== "ContextMenu" && !(event.key === "F10" && event.shiftKey)) {
+    return;
+  }
+  event.preventDefault();
+  void showNativeMenu(itemId);
 }
 
 async function activateSecondary(event: MouseEvent, itemId: string): Promise<void> {

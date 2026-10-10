@@ -14,6 +14,7 @@ import { useShellStore } from "./stores/shell";
 import BarView from "./views/BarView.vue";
 import DiagnosticsDialogView from "./views/DiagnosticsDialogView.vue";
 import QuickPanelView from "./views/QuickPanelView.vue";
+import TrayMenuView from "./views/TrayMenuView.vue";
 import WorkspaceHudView from "./views/WorkspaceHudView.vue";
 
 const { t } = useI18n();
@@ -34,6 +35,8 @@ const surfaceView = computed(() => {
       return { component: WorkspaceHudView, props: { surface } };
     case "diagnosticsDialog":
       return { component: DiagnosticsDialogView, props: {} };
+    case "trayMenu":
+      return { component: TrayMenuView, props: { surface } };
     default:
       return null;
   }

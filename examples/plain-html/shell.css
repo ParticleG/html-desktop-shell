@@ -60,3 +60,81 @@ button:disabled {
   color: #fca5a5;
   min-height: 1.2em;
 }
+
+.tray-menu-page {
+  height: 100vh;
+  padding: 0;
+}
+
+.tray-menu-page main {
+  border: 0;
+  border-radius: 0;
+  box-sizing: border-box;
+  height: 100%;
+  max-width: none;
+  padding: 0;
+  width: 100%;
+}
+
+.tray-menu-content {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  box-sizing: border-box;
+  max-height: 100%;
+  padding: 8px;
+  overflow: auto;
+}
+
+.tray-menu-empty {
+  color: inherit;
+  margin: 0;
+  min-height: 1.2em;
+}
+
+.tray-menu-controls {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.tray-menu,
+.tray-menu-node {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.tray-menu .tray-menu {
+  border-left: 1px solid rgba(167, 243, 208, 0.25);
+  margin-left: 10px;
+  padding-left: 10px;
+}
+
+.tray-menu-node > button {
+  align-items: center;
+  background: transparent;
+  border-radius: 6px;
+  color: inherit;
+  display: flex;
+  font-weight: 400;
+  gap: 6px;
+  justify-content: flex-start;
+  overflow-wrap: anywhere;
+  text-align: left;
+  white-space: normal;
+  width: 100%;
+}
+
+.tray-menu-node > button:hover:not(:disabled) {
+  background: rgba(167, 243, 208, 0.12);
+}
+
+.tray-toggle {
+  flex: 0 0 1rem;
+}
+
+.tray-menu [role="separator"] {
+  border-top: 1px solid rgba(255, 255, 255, 0.16);
+  margin: 6px 0;
+}

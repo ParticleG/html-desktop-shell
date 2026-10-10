@@ -28,10 +28,6 @@ describe("visibleWorkspaces", () => {
     expect(visibleWorkspaces(state, "eDP-1").map((workspace) => workspace.index)).toEqual([1]);
   });
 
-  test("returns all workspaces without panel output", () => {
-    expect(visibleWorkspaces(state, null).map((workspace) => workspace.index)).toEqual([1, 2]);
-    expect(visibleWorkspaces(state, "").map((workspace) => workspace.index)).toEqual([1, 2]);
-  });
 });
 
 describe("workspaceLabel", () => {

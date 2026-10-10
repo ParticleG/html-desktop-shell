@@ -11,6 +11,7 @@ const messages = {
       workspaceHud: "Workspace HUD",
       workspace: "Workspace",
       diagnosticsDialog: "Diagnostics",
+      trayMenu: "Tray menu",
     },
     regions: {
       barLeft: "Left bar widgets",

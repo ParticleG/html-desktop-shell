@@ -357,4 +357,34 @@ describe("TrayControls mounted menu behavior", () => {
     expect(wrapper.find('[role="alert"]').exists()).toBe(false);
     expect(itemAction(wrapper, "player", "Show menu").attributes("disabled")).toBeUndefined();
   });
+
+  test("keeps one fixed native-menu anchor per row resolvable while the row controls are busy", async () => {
+    const requests: RequestEnvelope[] = [];
+    let finish!: (value: string) => void;
+    const pending = new Promise<string>((resolve) => { finish = resolve; });
+    window.webkit = {
+      messageHandlers: {
+        shell: {
+          postMessage(request) {
+            requests.push(request);
+            return pending;
+          },
+        },
+      },
+    };
+    const { wrapper } = mountControls([item("player"), item("menu", { isMenu: true })]);
+    expect(wrapper.get('[data-tray-id="player"] [data-tray-menu-trigger]').text()).toBe("Native menu");
+    expect(wrapper.findAll("[data-tray-menu-trigger]")).toHaveLength(2);
+
+    await wrapper.get('[data-tray-id="player"] [data-tray-menu-trigger]').trigger("click");
+    await settle();
+    const anchor = wrapper.get('[data-tray-id="player"] [data-tray-menu-trigger]');
+    expect(anchor.text()).toBe("Native menu");
+    expect(anchor.attributes("disabled")).toBeDefined();
+
+    finish(JSON.stringify({ id: requests[0]!.id, ok: true, result: null }));
+    await settle();
+    expect(anchor.text()).toBe("Native menu");
+    expect(anchor.attributes("disabled")).toBeUndefined();
+  });
 });

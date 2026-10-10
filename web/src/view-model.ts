@@ -11,14 +11,11 @@ export function visibleWorkspaces(
   surfaceOutput: string | null | undefined,
 ): NiriWorkspace[] {
   const items = state?.niri?.workspaces?.items;
-  if (!Array.isArray(items)) {
+  if (!Array.isArray(items) || typeof surfaceOutput !== "string" || surfaceOutput.length === 0) {
     return [];
   }
 
-  if (typeof surfaceOutput === "string" && surfaceOutput.length > 0) {
-    return items.filter((workspace) => workspace.output === surfaceOutput);
-  }
-  return items;
+  return items.filter((workspace) => workspace.output === surfaceOutput);
 }
 
 export function workspaceLabel(workspace: NiriWorkspace): string {

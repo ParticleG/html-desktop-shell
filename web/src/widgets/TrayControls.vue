@@ -36,6 +36,7 @@
           />
           <Button
             class="surface-action"
+            data-tray-menu-trigger
             :label="t('desktop.nativeMenu')"
             :disabled="busy || !shell.hasCapability('showTrayItemContextMenu')"
             size="small"
@@ -64,7 +65,7 @@
             :disabled="busy || !canReadMenu"
             size="small"
             text
-            @click="loadMenu()"
+            @click="load()"
           />
           <Button class="surface-action" :label="t('desktop.closeMenu')" size="small" text @click="closeMenu" />
         </div>
@@ -78,7 +79,7 @@
         :busy="busy || !menu.root.enabled"
         :can-activate="canActivateMenu"
         @toggle="toggleSubmenu"
-        @activate="activateMenuNode"
+        @activate="activateNode"
         @close="closeMenu"
       />
     </div>
@@ -88,18 +89,16 @@
 
 <script setup lang="ts">
 import Button from "primevue/button";
-import { computed, onUnmounted, ref, watch } from "vue";
+import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import {
   activateTrayItem,
-  activateTrayMenuItem,
-  getTrayMenu,
   secondaryActivateTrayItem,
   showTrayItemContextMenu,
 } from "@html-desktop-shell/shell-api";
-import type { TrayMenu, TrayMenuNode } from "@html-desktop-shell/shell-api";
 
 import { useNativeAction } from "../composables/useNativeAction";
+import { useTrayMenu } from "../composables/useTrayMenu";
 import { useShellStore } from "../stores/shell";
 import ShellIcon from "./ShellIcon.vue";
 import TrayMenuTree from "./TrayMenuTree.vue";
@@ -113,15 +112,19 @@ const canReadMenu = computed(() => shell.hasCapability("getTrayMenu"));
 const canActivateMenu = computed(() => shell.hasCapability("activateTrayMenuItem"));
 const selectedId = ref<string | null>(null);
 const selectedItem = computed(() => items.value.find((item) => item.id === selectedId.value));
-const menu = ref<TrayMenu | null>(null);
-const expandedIds = ref<ReadonlySet<number>>(new Set());
-let menuGeneration = 0;
+const { menu, expandedIds, load, toggleSubmenu, activateNode, reset } = useTrayMenu({
+  itemId: () => selectedId.value,
+  isSupported: () => selectedItem.value?.hasMenu === true,
+  canRead: () => canReadMenu.value,
+  canActivate: () => canActivateMenu.value,
+  busy,
+  error,
+  run,
+});
 
 function closeMenu(): void {
-  menuGeneration++;
+  reset();
   selectedId.value = null;
-  menu.value = null;
-  expandedIds.value = new Set();
   error.value = "";
 }
 
@@ -134,10 +137,6 @@ watch(
   },
   { flush: "sync" },
 );
-
-onUnmounted(() => {
-  menuGeneration++;
-});
 
 async function activateItem(itemId: string): Promise<void> {
   if (items.value.some((item) => item.id === itemId) && shell.hasCapability("activateTrayItem")) {
@@ -163,91 +162,6 @@ async function openMenu(itemId: string): Promise<void> {
   }
   closeMenu();
   selectedId.value = itemId;
-  await loadMenu();
-}
-
-function findEnabledNode(nodes: readonly TrayMenuNode[], id: number): TrayMenuNode | undefined {
-  for (const node of nodes) {
-    if (!node.visible || !node.enabled || node.type === "separator") {
-      continue;
-    }
-    if (node.id === id) {
-      return node;
-    }
-    const child = findEnabledNode(node.children, id);
-    if (child) {
-      return child;
-    }
-  }
-  return undefined;
-}
-
-async function loadMenu(menuItemId = 0): Promise<void> {
-  const itemId = selectedId.value;
-  const generation = menuGeneration;
-  if (!itemId || !selectedItem.value?.hasMenu || !canReadMenu.value || busy.value) {
-    return;
-  }
-  const result = await run(async () => {
-    try {
-      return await getTrayMenu(itemId, menuItemId);
-    } catch (cause) {
-      if (generation !== menuGeneration || selectedId.value !== itemId) {
-        return undefined;
-      }
-      throw cause;
-    }
-  });
-  if (result === undefined || generation !== menuGeneration || selectedId.value !== itemId
-    || !selectedItem.value?.hasMenu || !canReadMenu.value) {
-    return;
-  }
-  if (result.itemId !== itemId) {
-    error.value = "Native tray menu returned a different item";
-    return;
-  }
-  menu.value = result;
-  const nextExpanded = new Set(expandedIds.value);
-  if (menuItemId !== 0) {
-    nextExpanded.add(menuItemId);
-  }
-  for (const id of nextExpanded) {
-    const node = findEnabledNode([result.root], id);
-    if (!node || (!node.hasSubmenu && node.children.length === 0)) {
-      nextExpanded.delete(id);
-    }
-  }
-  expandedIds.value = nextExpanded;
-}
-
-async function toggleSubmenu(menuItemId: number): Promise<void> {
-  const current = menu.value;
-  if (!current || busy.value || !canReadMenu.value) {
-    return;
-  }
-  const node = findEnabledNode([current.root], menuItemId);
-  if (!node || (!node.hasSubmenu && node.children.length === 0)) {
-    return;
-  }
-  if (expandedIds.value.has(menuItemId)) {
-    const nextExpanded = new Set(expandedIds.value);
-    nextExpanded.delete(menuItemId);
-    expandedIds.value = nextExpanded;
-  } else {
-    await loadMenu(menuItemId);
-  }
-}
-
-async function activateMenuNode(menuItemId: number): Promise<void> {
-  const current = menu.value;
-  const itemId = selectedId.value;
-  if (!current || !itemId || current.itemId !== itemId || !selectedItem.value?.hasMenu || !canActivateMenu.value) {
-    return;
-  }
-  const node = findEnabledNode([current.root], menuItemId);
-  if (!node || node.hasSubmenu || node.children.length > 0) {
-    return;
-  }
-  await run(() => activateTrayMenuItem(itemId, menuItemId, current.revision));
+  await load();
 }
 </script>

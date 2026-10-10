@@ -37,6 +37,13 @@ function mountSurface(surface: SurfaceContext, requests: RequestEnvelope[]): Vue
     ],
     workspaceHud: ["getHostInfo", "getCapabilities"],
     diagnosticsDialog: ["getHostInfo", "getCapabilities", "getState", "setDiagnosticsDialogOpen"],
+    trayMenu: [
+      "getHostInfo",
+      "getCapabilities",
+      "getTrayMenu",
+      "activateTrayMenuItem",
+      "closeTrayMenu",
+    ],
   } as const;
   window.webkit = {
     messageHandlers: {
@@ -60,6 +67,14 @@ function mountSurface(surface: SurfaceContext, requests: RequestEnvelope[]): Vue
               id: request.id,
               ok: true,
               result: { methods: capabilitiesBySurface[surface.kind] },
+            });
+          }
+          if (request.method === "getTrayMenu") {
+            const itemId = surface.kind === "trayMenu" ? surface.trayItemId : "unknown";
+            return JSON.stringify({
+              id: request.id,
+              ok: true,
+              result: { itemId, revision: 1, root: { id: 0, label: "", enabled: true, visible: true, type: "", toggleType: null, toggleState: -1, icon: null, children: [], hasSubmenu: false } },
             });
           }
           if (request.method === "getState") {
@@ -126,16 +141,18 @@ afterEach(() => {
 
 describe("SurfaceRoot mounted routing", () => {
   test("renders every surface variant exhaustively and loads HostInfo once", async () => {
-    const cases: Array<{ surface: SurfaceContext; selector: string; text: string }> = [
+    const cases: Array<{ surface: SurfaceContext; selector: string; text: string; pollsState: boolean }> = [
       {
         surface: { kind: "bar", monitorIndex: 0, output: "DP-1" },
         selector: "#shell-bar",
         text: "HTML Shell",
+        pollsState: true,
       },
       {
         surface: { kind: "quickPanel", monitorIndex: 0, output: "DP-1" },
         selector: "#quick-panel",
         text: "Quick Panel",
+        pollsState: true,
       },
       {
         surface: {
@@ -146,11 +163,19 @@ describe("SurfaceRoot mounted routing", () => {
         },
         selector: "#workspace-hud",
         text: "7",
+        pollsState: false,
       },
       {
         surface: { kind: "diagnosticsDialog", monitorIndex: 0, output: "DP-1" },
         selector: "#diagnostics-dialog",
         text: "Diagnostics",
+        pollsState: true,
+      },
+      {
+        surface: { kind: "trayMenu", monitorIndex: 0, output: "DP-1", trayItemId: "item-7" },
+        selector: "#tray-menu",
+        text: "Refresh",
+        pollsState: false,
       },
     ];
 
@@ -163,7 +188,7 @@ describe("SurfaceRoot mounted routing", () => {
       expect(requests.filter((request) => request.method === "getHostInfo")).toHaveLength(1);
       expect(requests.filter((request) => request.method === "getCapabilities")).toHaveLength(1);
       expect(requests.filter((request) => request.method === "getState")).toHaveLength(
-        item.surface.kind === "workspaceHud" ? 0 : 1,
+        item.pollsState ? 1 : 0,
       );
 
       wrapper.unmount();
@@ -190,6 +215,12 @@ describe("SurfaceRoot mounted routing", () => {
         bridgeVersion: 6,
         surface: { kind: "workspaceHud", monitorIndex: -1, output: null, workspaceIndex: 0 },
       },
+      {
+        shell: "html-desktop-shell",
+        backend: "wayland-layer-shell",
+        bridgeVersion: 6,
+        surface: { kind: "trayMenu", monitorIndex: 0, output: null, trayItemId: "" },
+      },
     ];
 
     for (const hostInfo of invalidHostInfo) {
@@ -201,6 +232,7 @@ describe("SurfaceRoot mounted routing", () => {
       expect(wrapper.find("#quick-panel").exists()).toBe(false);
       expect(wrapper.find("#workspace-hud").exists()).toBe(false);
       expect(wrapper.find("#diagnostics-dialog").exists()).toBe(false);
+      expect(wrapper.find("#tray-menu").exists()).toBe(false);
 
       wrapper.unmount();
     }
