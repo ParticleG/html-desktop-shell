@@ -3,7 +3,7 @@
 ## Audited baseline
 
 The completed foundation, typed multi-surface delivery, and desktop-capability
-extension establish the current implementation:
+extension establish the audited v5 baseline before the v6 tray-menu correction:
 
 - a Rust 2024, single-process GTK4/WebKitGTK Wayland layer-shell host;
 - one persistent typed Bar per GDK monitor plus independently secured Quick
@@ -270,6 +270,58 @@ These checks do not claim deliberate notification-daemon migration,
 accessibility-bus health, or the separate full compositor focus/geometry/hotplug/
 pointer-transparency release matrix. Backend and rendered verification details
 are recorded in the implementation plan.
+
+### Post-P4 — Regression and release acceptance (in progress)
+
+The approved next stage covers current-version regressions and the existing
+two-output surface matrix, not new privileged APIs or desktop-service migration.
+
+On 2026-10-08, SNI display-name/ToolTip-title literal normalization was corrected
+and all 127 Rust tests, formatting, Clippy, the locked build, startup checks,
+and the existing two-output Bar smoke passed. Real SNI/Bridge/Vue/native-snapshot
+checks and Quick Panel/Diagnostics tuple, handoff, and close checks passed on
+DP-2 and DP-3.
+
+The user confirmed physical DP-3 unplug/reconnect for the tested binary. Manual
+checks also exposed delayed native output metadata, cross-output duplicate
+workspace indices, and application-owned tray context windows. Output binding
+and workspace scoping were corrected and verified through production Bridge/UI
+checks on both outputs; all 127 native and 70 web tests passed afterward.
+
+The tray correction is a hybrid inside the accepted Bridge v6 boundary. The
+shared Tray Menu authority is unchanged. A Bar menu is a native parent-relative
+`GtkPopover`/`xdg_popup` with native autohide and grab; a Quick Panel menu keeps
+its host-rendered Overlay/Exclusive zone-`0` workarea overlay with transparent
+native input layers over all active outputs. In both presentations the first
+outside press closes only and is consumed, never reaching the desktop. Bridge v6
+adds exact menu identity/self-close without broadening existing scopes. No menu
+or capture layer reserves desktop space.
+
+Post-popup checks passed: 141 Rust tests, formatting, locked all-target Clippy,
+locked build/startup, 78 web tests / 499 assertions with typecheck/build, and
+32 smoke tests / 99 assertions. Earlier Quick workarea/input and HUD
+content/replacement/timeout/pointer-transparency observations remain scoped to
+those surfaces; actual Bar-popup evidence was collected separately.
+
+Real Bar pointer and keyboard QA exposed a coordinate-domain defect when another
+Top layer reserves space: the actual Bar moved to y=40, but its all-output
+zone-`-1` menu omitted that displacement, opening at y=32 instead of y=72,
+because layer-shell configure supplies local width/height and not the global
+origin. The user approved the Bar-only native parent-relative popup, which
+resolves that boundary without guessing `dms:dankisland`'s exclusive offsets;
+foreign exclusive offsets are never inferred. Actual Bar-popup checks now cover
+native parent-relative placement, right-click and keyboard invocation, submenu
+action-before-close, outside-press consumption on both outputs, retained-old-view
+denial, delayed-reply isolation, forced external focus loss, path/owner retirement,
+and same-popup constrained growth/collapse. Fcitx popup content was inspected on
+both outputs without executing its actions. Shared Quick singleton/capture
+lifecycle and synchronous caller-retiring replies were also observed.
+
+The final production host showed one correct Bar per output and clean shutdown,
+but the user deferred post-fix physical unplug/reconnect on 2026-10-09. Physical
+hotplug remains unobserved for the corrected runtime; earlier observations are
+not substituted. The exact contract and evidence are in the implementation plan.
+Full release acceptance is not complete.
 
 ## Deferred high-surface features
 

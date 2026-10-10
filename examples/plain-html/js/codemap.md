@@ -2,7 +2,7 @@
 
 ## Responsibility
 
-This directory implements a framework-free Bridge v5 client and one-shot surface-aware DOM renderer.
+This directory implements a framework-free Bridge v6 client, scoped status controls, and a functional native-bound tray-menu renderer.
 
 - `bridge.js` converts named JavaScript functions into request/reply messages for WebKit's `shell` handler.
 - `app.js` discovers the receiving surface and its scoped capabilities, then renders status and only the controls that surface may invoke.
@@ -17,7 +17,7 @@ This directory implements a framework-free Bridge v5 client and one-shot surface
 4. returns `response.result` when `response.ok` is true;
 5. otherwise throws `NativeBridgeError`, retaining `response.error.code` and using the native message or `"native bridge request failed"`.
 
-The module exports only exact Bridge v5 adapters:
+The module exports exact Bridge v6 adapters:
 
 | Function | Native method | Parameters |
 | --- | --- | --- |
@@ -28,22 +28,19 @@ The module exports only exact Bridge v5 adapters:
 | `setQuickPanelOpen(open)` | `setQuickPanelOpen` | `{ open }` |
 | `setDiagnosticsDialogOpen(open)` | `setDiagnosticsDialogOpen` | `{ open }` |
 
-The additional audio, tray/menu, notification and installed-application adapters
-use the same exact v5 params/results documented in the
-[native contract](../../../docs/html-desktop-shell-multi-surface-implementation-plan.md#desktop-capability-extension--bridge-v5).
-`getTrayMenu(itemId,menuItemId=0)` supports native-prepared lazy submenus.
-`app.js` stays a minimal surface/state demo rather than duplicating the official
-desktop UI; every named capability remains usable by another framework-free UI.
+The desktop adapters preserve exact native params/results. Tray Menu uses only
+`getTrayMenu(itemId,menuItemId)`, current-revision `activateTrayMenuItem`, and
+`closeTrayMenu()`; host menu opening keeps `{itemId}` and now returns `null`.
+The native contract is documented in the implementation plan's v6 extension.
 
 The wrapper neither validates nor reshapes successful results. It has no generic invoke, command, file, D-Bus, network, eval, arbitrary Niri action, or window-creation adapter.
 
 ## Capability and Surface Semantics (`app.js`)
 
-`render()` loads host/capabilities concurrently, requires Bridge v5, and requests state only when authorized:
+`render()` requires Bridge v6 and requests state only when authorized:
 
-- `bar` and `quickPanel`: all 20 named methods;
-- `workspaceHud`: `getHostInfo` and `getCapabilities` only;
-- `diagnosticsDialog`: `getHostInfo`, `getCapabilities`, `getState`, and `setDiagnosticsDialogOpen`.
+- Bar/Quick: 20 methods; HUD: two; Diagnostics: four.
+- Tray Menu: host/capabilities, bound root/submenu read, leaf activation, self-close.
 
 The native dispatcher enforces this matrix; hiding a button is not the security boundary. A known method outside the receiving surface's scope returns a structured `surface_forbidden` error.
 
@@ -53,7 +50,7 @@ Actions are derived from both context and capability:
 
 - `setQuickPanelOpen` renders an Open button everywhere except on `quickPanel`, where it renders Close.
 - `setDiagnosticsDialogOpen` renders an Open button everywhere except on `diagnosticsDialog`, where it renders Close.
-- Workspace buttons require both state and `niriFocusWorkspace`; entries must have a positive integer index and, when the receiving surface has an output, must match that output.
+- Workspace buttons require state, the focus capability, a known output, and a positive index from that output's cached publication.
 
 Each button disables itself during its request, clears the prior action status, writes errors through `textContent`, and restores itself in `finally`. A successful action does not trigger another state read or render.
 
@@ -66,13 +63,13 @@ Each button disables itself during its request, clears the prior action status, 
 5. Capability-gated buttons call the exact wrapper with `{ open }` or `{ workspaceIndex }`.
 6. Native success resolves silently; action failure updates the live status; startup failure replaces the mount with an error.
 
-There is no interval, timeout, polling loop, event subscription, store, remote asset load, or direct WebKit call outside `bridge.js`.
+There is no general-state polling or remote asset load. Tray Menu keeps a local read/expanded/revision session, refreshes explicitly, renders literal enabled/toggle/separator nodes, supports keyboard navigation, and closes only after successful leaf activation or explicit dismissal. `#tray-menu-content` is the native fitting target.
 
 ## Integration Points
 
 - **HTML consumer:** `examples/plain-html/index.html` provides the `#app` mount and imports `app.js`.
 - **Trusted transport:** `window.webkit.messageHandlers.shell.postMessage` is the only browser-to-native dependency and exists only in the trusted hosted document.
-- **Native dispatcher:** Bridge v5 enforces exact surface-scoped methods/parameters and native cache authority; asynchronous operations preserve the same structured reply envelope.
+- **Native dispatcher:** Bridge v6 enforces caller/item scope, exact parameters, and native cache authority.
 - **Typed surface controls:** Quick Panel and Diagnostics wrappers delegate visibility to the native surface manager rather than creating or addressing generic windows.
 - **Workspace activation:** the native operation accepts only a positive published workspace index and executes the exact focus-workspace action.
 - **Local-only browser behavior:** without the injected handler, the initial render reaches the text-only `"native bridge unavailable"`/native JavaScript error path; no fallback transport or remote endpoint exists.

@@ -2,7 +2,7 @@
 
 ## Responsibility
 
-This directory contains the four typed Bridge v5 surface views selected directly by `SurfaceRoot.vue`. Each native layer-shell window receives validated surface context and renders exactly one view.
+This directory contains five Bridge v6 content views selected directly by `SurfaceRoot.vue`. Each trusted native content surface receives immutable context and renders exactly one view.
 
 ## View inventory
 
@@ -11,7 +11,7 @@ This directory contains the four typed Bridge v5 surface views selected directly
 - Renders `#shell-bar` with the three `barLayout` regions and an exhaustive `widgetRegistry` for the eight widget keys.
 - Projects Pinia refs and the workspace-focus action into shared `WidgetProps`, then starts view-owned polling.
 - Shows **Open Quick Panel** and **Open Diagnostics** buttons only when the corresponding scoped capability exists. Buttons call the exact transient-open store operations.
-- Adds fixed audio, tray, and notification summaries/actions beside the configured status widgets; native item menus stay inside Quick Panel.
+- Fixed audio/tray/notification controls use native operations; right-click opens an independent host Tray Menu, not Quick Panel or an application's ordinary window.
 
 ### `QuickPanelView.vue`
 
@@ -31,12 +31,19 @@ This directory contains the four typed Bridge v5 surface views selected directly
 - Unavailable providers show their exact native `reason` when present; available providers show `available`, so stale reasons disappear after recovery on a later refresh.
 - The close button exists only with `setDiagnosticsDialogOpen`; otherwise the view explicitly renders `diagnostics close unavailable`. Bridge and action errors remain visible.
 
+### `TrayMenuView.vue`
+
+- Accepts immutable `TrayMenuSurfaceContext` and reads only its bound item through `useTrayMenu`; it never polls `getState`.
+- Reuses `TrayMenuTree` for literal labels, enabled/toggle state, lazy submenus, revision-bound activation, and keyboard navigation.
+- `#tray-menu-content` is the native measurement target. Native code owns coordinates/dimensions; the view owns scrolling, wrapped errors, refresh, close, and focus.
+- Successful leaf activation replies before `closeTrayMenu`; stale/error responses remain visible. Unmount retires pending menu reads.
+
 ## Data and control flow
 
 1. `SurfaceRoot` completes one-time HostInfo/capability initialization and selects one view from `hostInfo.surface.kind`.
 2. Bar, Quick Panel, and Diagnostics obtain the store and call `useShellPolling()`. Each poll awaits `refreshState()` before scheduling its next one-second timeout and stops permanently on unmount.
 3. Bar and Quick Panel create `WidgetProps` from current store refs and pass the exact workspace action callback to widgets.
-4. Capability-computed flags render only operations authorized for the current surface; native Bridge v5 remains the actual authorization boundary.
+4. Capability flags are UI hints; native Bridge v6 remains the actual caller/item authorization boundary.
 5. HUD bypasses this state path and displays only its typed surface prop.
 
 ## Mounted coverage

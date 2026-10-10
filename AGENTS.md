@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-`html-desktop-shell` is a Rust 2024, GTK4, gtk4-layer-shell, and WebKitGTK 6.0 desktop-shell host for Wayland compositors exposing `zwlr_layer_shell_v1`. Maintainers must use the current files and repository maps rather than older single-panel descriptions. It owns four typed surfaces—Bar, Quick Panel, Workspace HUD, and Diagnostics Dialog—and serves only local static web assets.
+`html-desktop-shell` is a Rust 2024, GTK4, gtk4-layer-shell, and WebKitGTK 6.0 desktop-shell host for Wayland compositors exposing `zwlr_layer_shell_v1`. Use current files/maps rather than older single-panel descriptions. It owns five typed content surfaces—Bar, Quick Panel, Workspace HUD, Diagnostics Dialog, and Tray Menu—and serves only local static assets. Tray dismiss capture layers are native-only and have no WebView or Bridge.
 
 This is not a compositor. It has no X11, raw-TTY, normal-window, Electron, or compositor-less fallback. niri is the primary integration target, but the host can run on another layer-shell compositor with niri-specific provider/action state unavailable.
 
@@ -20,18 +20,19 @@ Wayland compositor
   -> independent local WebKitGTK WebViews
   -> exact trusted entry-document gate
   -> WebKit handler "shell"
-  -> Bridge v4 method/parameter/caller-surface authorization
+  -> Bridge v6 method/parameter/caller-surface authorization
   -> shared cached providers or a typed surface/compositor action
   -> structured JSON response
 ```
 
-Bridge v5 has 20 exact methods. `getHostInfo` and `getCapabilities` exist on all surfaces; Workspace HUD has no state or action methods; Diagnostics has summary-only desktop state and may close itself; Bar and Quick Panel can read state, focus a validated niri workspace, open/close supported transient surfaces, and use the exact audio, tray/menu, notification, and installed-application operations. Browser input never chooses a trusted monitor, output, native command, path, URI, bus identity, or global coordinate.
+Bridge v6 has 21 exact methods. Bar and Quick Panel retain 20; Workspace HUD has host/capabilities only; Diagnostics has summary-only state and self-close. Tray Menu has exactly host/capabilities, bound menu read/leaf activation, and `closeTrayMenu`. Its immutable `trayItemId` cannot authorize another item. Browser input never chooses a trusted monitor, output, command, path, URI, DBus identity, or global coordinate.
 
 Important lifecycle invariants:
 
 - Build a full replacement Bar set before tearing down the current set on monitor changes.
 - Close Quick Panel and Diagnostics idempotently on Escape, focus loss, explicit close, rebuild, or shutdown.
 - Opening Diagnostics from Quick Panel closes the Quick Panel only after the open succeeds.
+- Tray menus use independent overlays, never Quick Panel or vendor `ContextMenu` windows. Consume the first outside click on any output; remove all native capture layers on every close, invalidation, rebuild, or shutdown path.
 - Publish HUDs only from compositor-confirmed post-synchronization workspace activation; suppress initial, recovery, and duplicate events.
 - Guard HUD timeout callbacks by generation and apply an empty native input region after realization.
 - Shutdown disconnects observers, removes timers, closes all surfaces, and stops providers once; stale queued callbacks do nothing.
@@ -44,7 +45,7 @@ Important lifecycle invariants:
   - `surface_manager.rs`: topology, persistent/transient lifecycle, monitor rebuilds, and HUD observation.
   - `surface_window.rs`: GTK layer-shell/WebKit window factory.
   - `shell_host.rs`: application-lifetime host and shared resources.
-  - `bridge.rs` and `messages.rs`: security-sensitive Bridge v5 attachment, protocol, validation, and responses.
+  - `bridge.rs` and `messages.rs`: security-sensitive Bridge v6 attachment, protocol, validation, and responses.
   - `providers/`: system/niri state plus asynchronous audio, SNI/DBusMenu, notifications, installed applications, and bounded native icon pixels.
   - `web_security.rs`: local scheme, navigation/resource blocking, and trust checks.
 - `web/`: official Vue 3/Vite/TypeScript frontend.

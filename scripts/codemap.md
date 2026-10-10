@@ -12,7 +12,7 @@ These files describe per-invocation checks; this map records no standing result.
 
 ## Typed Surface Profiles
 
-`SURFACE_PROFILES` is the source of the CLI's four accepted `--surface` values and tuple policies:
+`SURFACE_PROFILES` defines five accepted CLI values and tuple policies:
 
 | CLI profile | Namespace prefix | Layer | Keyboard |
 | --- | --- | --- | --- |
@@ -20,8 +20,18 @@ These files describe per-invocation checks; this map records no standing result.
 | `quick-panel` | `html-desktop-shell-quick-panel-` | `Overlay` | `OnDemand` |
 | `workspace-hud` | `html-desktop-shell-workspace-hud-` | `Overlay` | `None` |
 | `diagnostics-dialog` | `html-desktop-shell-diagnostics-` | `Overlay` | `OnDemand` |
+| `tray-menu` | `html-desktop-shell-tray-menu-` | `Overlay` | `Exclusive` |
 
-The validator reads active outputs from entries whose `logical` field is non-null. It reads only layer tuples whose namespace starts with one of the four shell prefixes; such tuples must include string `output`, `layer`, and `keyboard_interactivity` fields.
+Only typed content prefixes enter tuple validation. The `tray-menu` profile
+detects only the Quick Panel menu's `html-desktop-shell-tray-menu-` layer
+namespace: a Bar tray menu is a native parent-relative `GtkPopover`/`xdg_popup`
+with no layer namespace, so it never appears in a layer inventory and tuple
+inspection can neither confirm nor deny it. A missing namespace, and any
+`--absent` result, is not a Bar popup presence pass. Native-only
+`html-desktop-shell-tray-dismiss-` layers are distinct and require separate
+runtime input/cleanup observation. Menu validation rejects multiple global menus;
+bare namespace tuples do not prove an actual popup, grab, focus, geometry, click
+capture, or consumed input.
 
 ### Bar semantics
 

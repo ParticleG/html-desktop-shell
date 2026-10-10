@@ -2,7 +2,7 @@
 
 ## Responsibility
 
-`shell.ts` defines `useShellStore`, the Pinia boundary between Vue and the framework-independent Bridge v5 package. It owns validated one-time bootstrap data, periodically refreshed state, action status, capability checks, and the exact surface/workspace commands used by the views. Desktop widgets call the named SDK operations with local `useNativeAction` state; native providers remain authoritative.
+`shell.ts` is the Pinia boundary to the framework-independent Bridge v6 SDK. It owns validated bootstrap, refreshed state, action errors, and capability hints. Tray Menu uses only bootstrap/capabilities and its separate bound menu session, never `refreshState`.
 
 ## State and initialization
 
@@ -33,4 +33,4 @@
 
 ## Boundaries
 
-The store is an application-state and usability boundary, not an authorization layer. Capability-based rendering avoids offering unavailable operations, while native Bridge v5 still enforces each surface's method allowlist and parameters. `NativeBridgeError` messages and codes originate in shell-api; presentation does not broaden authority.
+The store is a presentation boundary, not authority. Native Bridge v6 enforces caller/item method scope and parameters; SDK errors preserve native codes/messages.

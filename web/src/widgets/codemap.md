@@ -40,7 +40,7 @@ This directory contains reusable Bar and Quick Panel presentation and desktop co
 - Components use `<script setup lang="ts">`, computed projections, Lucide icons, PrimeVue controls/tags, and local vue-i18n messages.
 - Shared domain formatting stays in `../view-model.ts`: workspace filtering/labels/titles and focused-window, battery, network, and bridge summaries.
 - `BarView.vue` renders the eight configured status widgets plus fixed audio/tray/notification controls. `QuickPanelView.vue` lazily mounts Audio, System tray, Notifications, or Applications through PrimeVue tabs.
-- `WorkspacesWidget.vue` filters against `props.hostInfo?.surface.output`, validates the index, prevents default for accepted inputs, and launches the injected async action.
+- `WorkspacesWidget.vue` requires a known immutable surface output before exposing workspace buttons, filters only that output, validates the index, prevents default for accepted inputs, and launches the injected async action. Unknown output never falls back to every output's repeated workspace indices.
 - Desktop controls use `useNativeAction` for local busy/error state, preserve fresh native results, and discard retired async responses after unmount or authorization/catalog changes. They never choose native commands, paths, bus identities, or global coordinates.
 - The launcher uses a text input with `role="searchbox"`; WebKit's native search decoration requests a `data:` SVG that would revoke the local-only trust latch. Native resource validation stays unchanged.
 

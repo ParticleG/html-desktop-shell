@@ -1,10 +1,10 @@
 # HTML Desktop Shell
 
-HTML Desktop Shell is a typed multi-surface desktop shell for Wayland compositors that implement `zwlr_layer_shell_v1`. One Rust 2024 process owns Bar, Quick Panel, Workspace HUD, and Diagnostics Dialog GTK4 layer-shell windows and embeds an independently secured local WebKitGTK view in each. The official frontend uses Vue 3, but the native host does not require Vue.
+HTML Desktop Shell is a typed multi-surface desktop shell for Wayland compositors that implement `zwlr_layer_shell_v1`. One Rust 2024 process owns Bar, Quick Panel, Workspace HUD, Diagnostics Dialog, and Tray Menu content surfaces, each with an independently secured local WebKitGTK view. Tray dismissal uses a native parent-relative popover grab on the Bar and native-only layer-shell capture layers for the Quick Panel, without exposing web content or a Bridge. The official frontend uses Vue 3, but the native host does not require Vue.
 
 ## Current status
 
-The current implementation owns four typed surfaces and exposes Bridge v5, including native audio, tray, notification, and installed-application capabilities. Use the current source files and repository maps for architecture details, and rebuild the generated frontend when web sources change. No private endpoint or machine-specific location is required.
+The current implementation has five typed content surfaces and Bridge v6, including native audio, tray, notification, and installed-application capabilities. Release acceptance remains in progress. Use current source files and repository maps, and rebuild generated assets when web sources change.
 
 The repository is active, non-archived, and not presented as a fork. The roadmap records dated delivery verification, remaining defects, and release gates for subsequent changes.
 
@@ -74,27 +74,32 @@ Diagnostic flags print information and exit without presenting surfaces. `--chec
 | Quick Panel | on demand, at most one per monitor | overlay, top/right | 0 | on-demand keyboard, pointer interactive |
 | Workspace HUD | timed replacement per monitor | overlay, centered | 0 | no keyboard, empty native input region |
 | Diagnostics Dialog | on demand, at most one per monitor | overlay, centered | 0 | on-demand keyboard, pointer interactive |
+| Tray Menu | on demand, at most one globally | Bar: parent-relative, native-trigger anchored; Quick Panel: overlay, top/right | no reservation | menu keyboard focus; native autohide/grab (Bar) or all-output outside-click dismissal (Quick Panel) |
 
 Quick Panel and Diagnostics share an idempotent close path for Escape, focus loss, explicit close, monitor rebuild, and shutdown. Opening Diagnostics from Quick Panel closes that Quick Panel. HUD publication waits for compositor-confirmed workspace activation, suppresses initial/recovery/duplicate events, and uses generation-guarded timers so an old timeout cannot close a replacement.
 
+Tray Menu is independent of Quick Panel. It renders exported DBusMenu instead of calling an application's `ContextMenu`, which may be absent or create an ordinary window. Both presentations share the same narrow Tray Menu authority and an independent trusted WebView, but they present differently. A Bar menu is a native parent-relative `GtkPopover`/`xdg_popup` anchored to the triggered Bar control with native autohide and grab; it is a distinct owned native presentation, not an ordinary window and not a layer namespace, so it never appears in compositor layer inventories. A Quick Panel menu remains its existing Overlay/Exclusive zone-`0` top/right workarea menu, with native-only transparent `-1` dismiss layers that cover every active output, including reserved panel areas, without reserving space. In both cases the first outside press closes the menu and is consumed rather than reaching the desktop. Escape, focus loss, explicit close, menu/owner disappearance, rebuild, and shutdown remove the menu and every capture layer. The Bar popup exists because a compositor-reserved top region (for example DMS) can displace the Bar from the output origin: layer-shell configure supplies local width and height, not the global origin, so an all-output `-1` menu cannot derive the Bar's real position without guessing another client's exclusive offsets. Native parent-relative placement resolves that boundary without guessing foreign geometry. Existing Bar/Quick/HUD/Diagnostics policies and desktop service ownership are unchanged.
+
 A monitor change builds a complete replacement Bar set before closing the old surfaces. On success, the manager closes old persistent and transient surfaces, removes timers, replaces the mapping, and presents the new Bars. After successful startup, `ShellHost` holds the GIO application alive across runtime monitor changes, including temporary windowless states. `Ctrl+C` (`SIGINT`) and `SIGTERM` request normal shutdown, which blocks new work, disconnects observers, removes timers, closes surfaces, and stops shared providers once.
 
-## Native Bridge v5
+## Native Bridge v6
 
-Bridge v5 keeps the original six exact methods and adds 14 narrow desktop operations. Capabilities are surface-scoped:
+Bridge v6 has 21 exact methods. Bar and Quick Panel retain 20 methods; the new Tray Menu adds a close-only operation and has five narrowly scoped methods:
 
-| Method | Bar | Quick Panel | Workspace HUD | Diagnostics |
-| --- | :---: | :---: | :---: | :---: |
-| `getHostInfo` | yes | yes | yes | yes |
-| `getCapabilities` | yes | yes | yes | yes |
-| `getState` | yes | yes | no | yes |
-| `niriFocusWorkspace` | yes | yes | no | no |
-| `setQuickPanelOpen` | yes | yes | no | no |
-| `setDiagnosticsDialogOpen` | yes | yes | no | yes |
-| Audio volume/mute | yes | yes | no | no |
-| Tray item/menu operations | yes | yes | no | no |
-| Notification history/read/dismiss/action | yes | yes | no | no |
-| Installed application search/launch | yes | yes | no | no |
+| Method | Bar | Quick Panel | Workspace HUD | Diagnostics | Tray Menu |
+| --- | :---: | :---: | :---: | :---: | :---: |
+| `getHostInfo` | yes | yes | yes | yes | yes |
+| `getCapabilities` | yes | yes | yes | yes | yes |
+| `getState` | yes | yes | no | yes | no |
+| `niriFocusWorkspace` | yes | yes | no | no | no |
+| `setQuickPanelOpen` | yes | yes | no | no | no |
+| `setDiagnosticsDialogOpen` | yes | yes | no | yes | no |
+| Audio volume/mute | yes | yes | no | no | no |
+| Tray item actions / host menu open | yes | yes | no | no | no |
+| `getTrayMenu` / `activateTrayMenuItem` | yes | yes | no | no | yes |
+| `closeTrayMenu` | no | no | no | no | yes |
+| Notification history/read/dismiss/action | yes | yes | no | no | no |
+| Installed application search/launch | yes | yes | no | no | no |
 
 Browser parameters cannot select a monitor or output; Rust derives those from immutable trusted caller context. Request envelopes must be JSON objects. Workspace and surface-action params must also be objects, rejecting arrays, missing or mistyped fields, and unknown fields before any action runs. Unauthorized or unknown methods, malformed JSON, stale surface monitors, unavailable niri, unknown workspaces, and failed actions produce structured errors. Diagnostics can use its open/close method only to close itself.
 
@@ -104,12 +109,17 @@ limited to integer percentages 0–100; actual readings may exceed 100. Tray IDs
 are native-owned and bound to a current unique bus owner. Menu reads support
 root/submenu preparation; clicks require the actual cached revision and an
 enabled, visible leaf. Notifications and application IDs are likewise checked
-against native session/catalog state before dispatch. The original six methods
-retain their v4 semantics; v5 is a clean protocol/SDK/asset cutover.
+against native session/catalog state before dispatch. Tray Menu requests must
+match its immutable native-bound `trayItemId`; it cannot read general state or
+control another item. `showTrayItemContextMenu({itemId})` opens the host menu and
+returns `null`; `closeTrayMenu({})` is close-only and returns `null`. Version 6
+is a clean protocol/SDK/asset cutover, with no v5 compatibility shim.
 
-DBusMenu labels remain literal text, including angle brackets and entity-like
-strings; mnemonic/control-character normalization is separate from SNI ToolTip
-markup handling. The reference UI renders menu labels as text, never HTML.
+SNI display names and ToolTip titles remain literal text, preserving underscores,
+angle brackets, and entity-like strings within the text bound. Only ToolTip
+descriptions undergo markup-to-text conversion. DBusMenu labels are also literal,
+but additionally normalize mnemonic underscores and control characters. The
+reference UI renders all tray text as text, never HTML.
 
 The complete parameter/result/security contract is recorded in the desktop
 capability extension of
@@ -166,9 +176,9 @@ packages, enable services, replace daemons, or persist notification history.
 
 ## Manual QA and limitations
 
-Use `scripts/smoke-current-niri.sh` only in a prepared current niri session; it creates and closes shell surfaces and exercises compositor-visible state. The `test/*.kdl` files are manual niri session entry points, not VM provisioning. Confirm surface count, namespace, output placement, layers, keyboard modes, disappearance, focus behavior, exclusive zones, rendered content, and HUD pointer transparency.
+Use `scripts/smoke-current-niri.sh` only in a prepared current niri session; it creates and closes shell surfaces and exercises compositor-visible state. The `test/*.kdl` files are manual niri session entry points, not VM provisioning. Confirm surface count, namespace, output placement, layers, keyboard modes, disappearance, focus behavior, exclusive zones, rendered content, and HUD pointer transparency. The `--surface tray-menu` profile inventories only the Quick Panel menu's `html-desktop-shell-tray-menu-{monitorIndex}` layer namespace; a Bar tray menu is a native parent-relative popover with no layer namespace, so tuple inspection can neither confirm nor deny it, and a missing namespace is not a Bar popup presence pass.
 
-Known limits include synchronous workspace action dispatch and smoke coverage that cannot prove rendered/focus/pointer behavior. Multi-output lifecycle changes still require compositor-backed post-fix QA. See [`docs/html-desktop-shell-feature-roadmap.md`](docs/html-desktop-shell-feature-roadmap.md) for dated verification and current remediation priorities, and [`codemap.md`](codemap.md) for source navigation.
+Known limits include synchronous workspace action dispatch and smoke coverage that cannot prove rendered/focus/pointer behavior. A bare namespace tuple cannot establish an actual popup, grab, focus, or geometry. Separate native Bar-popup QA on 2026-10-09 observed parent-relative placement, keyboard actions, consumed outside presses on both outputs, external-focus autohide, stale-view/reply isolation, and constrained grow/collapse; Fcitx content was inspected without executing actions. Post-fix physical unplug/reconnect was deferred by the user and remains a release gate, not a pass inferred from automated checks or older hotplug. See [`docs/html-desktop-shell-feature-roadmap.md`](docs/html-desktop-shell-feature-roadmap.md) for dated verification and current remediation priorities, and [`codemap.md`](codemap.md) for source navigation.
 
 ## License
 

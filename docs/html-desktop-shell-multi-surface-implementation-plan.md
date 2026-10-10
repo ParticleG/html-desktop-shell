@@ -14,11 +14,11 @@ This document expands the P3 contract in
 [`html-desktop-shell-feature-roadmap.md`](html-desktop-shell-feature-roadmap.md).
 The roadmap remains the priority source of truth.
 
-The P3 sections below record the completed Bridge v4 delivery. The approved
-desktop-capability extension at the end of this document defines the current
-Bridge v5 contract and supersedes v4 method/version descriptions. It does not
-change the four surface kinds, their geometry/input policies, local trust
-boundary, or original six method semantics.
+The P3 sections record the completed Bridge v4 delivery; the desktop extension
+records Bridge v5. The tray-menu extension below defines current Bridge v6:
+it adds a narrowly scoped fifth content surface and close operation without
+changing the original four surfaces' geometry/input policies or local trust
+boundary. Earlier version descriptions are historical, not current contracts.
 
 ## Goal
 
@@ -827,6 +827,13 @@ There is no XEmbed or X11 fallback.
 
 `TrayItem` contains `id,title,status,category,isMenu,hasMenu,tooltip,icon,
 attentionIcon,overlayIcon`; text is plain and icons contain pixels, not paths.
+SNI `Title` and fallback `Id`, category text, and the ToolTip title preserve
+literal angle brackets, entity-like strings, and underscores. Filter disallowed
+control characters and bound each displayed field to 4096 Unicode characters.
+Only the ToolTip description allows markup in the
+[SNI specification](https://specifications.freedesktop.org/status-notifier-item/latest/status-notifier-item.html#status-notifier-item-properties-tooltip);
+convert that description to plain text without loading embedded resources.
+Display-name underscores are not DBusMenu mnemonics.
 `getTrayMenu` prepares root `0` or a cached enabled/visible submenu with
 `AboutToShow`, then fetches the complete root with `GetLayout(0,-1,[])`. Preserve
 the server's actual revision. Nodes contain `id,label,enabled,visible,type,
@@ -838,7 +845,7 @@ when the revision does not change.
 DBusMenu `label` is literal menu text: preserve angle brackets and entity-like
 strings such as `&lt;literal&gt;` and `&amp;value`, rather than parsing markup or
 decoding entities. Normalize underscore mnemonics, escaped underscores, and
-disallowed control characters within the text bound. SNI ToolTip markup
+disallowed control characters within the text bound. ToolTip description
 normalization remains separate. The reference menu renders labels through text
 interpolation.
 
@@ -970,3 +977,262 @@ These are dated checks, not standing pass claims. Accessibility-bus warnings
 were observed; accessibility health and the full compositor
 focus/geometry/hotplug/pointer-transparency matrix were not validated by these
 desktop-capability runs.
+
+### Release regression and acceptance — 2026-10-08 (in progress)
+
+- An `item_view` regression reproduced SNI display-name loss: a literal
+  `<Player>` was removed and entity-like strings were decoded. Display names,
+  fallback `Id`, category, and ToolTip title now use bounded literal/control
+  normalization, preserving underscores. Only ToolTip description is converted
+  from markup. The regression and the Unicode-character bound check passed.
+- `cargo fmt --check`, Clippy with `-D warnings`, all 127 Rust tests, the locked
+  native build, and `--check` passed after this correction. Startup reported two
+  monitors, and the existing current-niri Bar smoke passed on DP-2 and DP-3.
+- A production-source GTK/WebKit host on an isolated, non-activating session bus
+  observed actual SNI Title and missing-Title/Id fallback fixtures. Bridge state,
+  Vue text interpolation, and painted native snapshots preserved raw angle
+  brackets, entity-like strings, and single/doubled underscores on both outputs.
+  ToolTip title stayed literal while its description normalized markup.
+- Existing niri tuple validation passed Quick Panel open/duplicate prevention,
+  caller-derived output context, Diagnostics handoff and summary privacy, and
+  transient disappearance on both outputs. Host shutdown left no GTK windows.
+- The user confirmed actual DP-3 unplug/reconnect: the process remained alive,
+  DP-2 retained its Bar, and reconnect restored one Bar on each output. Captured
+  compositor transitions corroborated the surviving process and restored set.
+  Real-input focus/geometry/HUD pointer-transparency acceptance remains open.
+  Accessibility warnings are not accessibility acceptance.
+- Manual checks exposed missing DP-2 output metadata and duplicate workspace
+  indices from other outputs. The host now observes delayed GDK connector
+  metadata and coalesces transactional binding rebuilds; unchanged bindings
+  preserve existing surfaces. The frontend never exposes workspace buttons
+  without a known output. Formatting, Clippy, all 127 native tests, the locked
+  build, frontend typecheck, all 70 web tests (426 assertions), and build passed.
+- A production-source hosted check verified correct Bar, Quick Panel, and
+  Diagnostics output context and rendered labels on both DP-2 and DP-3. Rendered
+  workspace buttons matched only the corresponding output's cached publication.
+  Existing watcher/notification owners remained unchanged.
+- Fixed the Bar's 20-character tray-error clipping. Actual native rejection
+  text rendered completely on both outputs at 32-pixel Bar height without
+  horizontal overflow; cropped native snapshots confirmed the visible text.
+- Fcitx5 exports DBusMenu but not the SNI `ContextMenu` method. Actual
+  `getTrayMenu` reads succeeded through the production Bridge on both outputs.
+  The selected correction is an independent layer-shell overlay and transparent
+  outside-click capture on all active outputs, with the first click consumed.
+  GtkPopover was an analyzed alternative at this stage. A later Bar-only native
+  parent-relative popup superseded the Bar portion of that selection after real
+  input exposed a coordinate-domain defect; the Quick overlay and capture layers
+  are unchanged. Implementation and current-version acceptance are tracked by the
+  v6 extension below.
+
+
+## Native tray-menu extension — Bridge v6
+
+### Contract and ownership
+
+- `showTrayItemContextMenu({itemId})` opens exported DBusMenu in the host and
+  returns `null`; it never calls vendor `ContextMenu` or creates an ordinary-window
+  fallback. Missing menu availability remains an explicit native error.
+- Five typed content surfaces share common trusted-WebView/lifecycle foundations,
+  but Tray Menu owns a distinct view and, on Bar, a native parent-relative popup
+  presentation instead of a layer namespace.
+- `trayMenu` context binds `monitorIndex`, `output`, and `trayItemId` before content
+  interaction. Browser input cannot select output, global coordinates, commands,
+  menu owner, or a resize operation.
+- Tray Menu allows exactly `getHostInfo`, `getCapabilities`, `getTrayMenu`,
+  `activateTrayMenuItem`, and `closeTrayMenu`. The latter accepts `{}` and returns
+  `null`; menu reads/actions must match the bound item, current owner, enabled
+  node, and revision. General state and unrelated desktop actions are forbidden.
+- The v6 method set has 21 names. Existing scopes remain Bar/Quick Panel 20,
+  HUD two, Diagnostics four; no v5 compatibility shim remains.
+
+### Native placement and input
+
+- Capture the actual trigger before asynchronous menu work. Mouse input and
+  focused/keyboard control geometry require independent observed evidence.
+- Native trusted-document queries use `button[data-tray-id]` in Bar and
+  `button[data-tray-menu-trigger]` in the Quick Panel row. Local bounds are
+  transformed with native viewport scaling; the request still carries only item ID.
+- Presentation is hybrid, sharing one Tray Menu authority and one independent
+  trusted WebView per menu. A Bar menu is a native parent-relative
+  `GtkPopover`/`xdg_popup` anchored to the triggered Bar control, with native
+  autohide and grab instead of a full-output capture layer. It is a distinct owned
+  native presentation, not an ordinary window and not a layer namespace; a stable
+  native widget name identifies it for temporary inspection. A Quick Panel menu
+  stays its existing Overlay/Exclusive zone-`0` top/right native workarea menu
+  with all-output buffer-backed `-1` dismiss captures.
+- Native configuration, margins, and captured local bounds establish placement for
+  both presentations without guessing foreign exclusive-zone offsets, changing
+  Quick Panel policy, or exposing a browser-selected parent, output, or coordinate.
+- Native fitting measures bounded `#tray-menu-content` including `scrollHeight`,
+  clamps to the current native coordinate domain, and allows tall-content
+  scrolling. Neither frontend has a native-coordinate or generic resize API.
+- Bar popup content reports a bounded natural size with a shrinkable native minimum.
+  The compositor's configured allocation is authoritative; a tall WebView is
+  allocated inside that limit and scrolls instead of imposing a larger GTK minimum.
+  The native content widget forwards focus and preserves the exact owned WebView
+  check through its single-child boundary.
+- Native Bar capture routes Menu / Shift+F10 to the focused trusted tray button
+  and stops WebKit's hidden `GtkTextView` from opening a competing editor menu.
+  Bare F10 and other surface shortcuts are unchanged.
+- The Quick menu namespace is `html-desktop-shell-tray-menu-{monitorIndex}`, layer
+  Overlay, keyboard Exclusive. There is at most one live menu globally across both
+  presentations.
+- For the Quick menu, native-only transparent
+  `html-desktop-shell-tray-dismiss-{monitorIndex}` layers cover every active output,
+  including the caller output. They use raw zone `-1` to cover reserved panel
+  regions without reserving space, keyboard None, and no WebView/Bridge. They map
+  below the actual menu.
+- Every close, Escape, focus loss, outside click, replacement, owner/menu loss,
+  rebuild, or shutdown retires the live popup/menu, removes every Quick capture
+  layer, and retires stale callbacks. The first outside press closes only; the
+  underlying desktop does not receive it, and that consumed dismissal must be
+  proven on both outputs for the Bar popup.
+- Successful leaf activation completes before frontend self-close. Native close
+  replies before identity-guarded retirement so successful replies are not revoked.
+- Original Bar/Quick Panel/HUD/Diagnostics policies and service owners are unchanged.
+
+### Presentation and acceptance
+
+- Vue `TrayMenuView` and the plain-HTML menu branch have no general-state polling.
+  They render literal labels, visible/enabled/separator/toggle state, lazy submenus,
+  current revisions, wrapped native errors, refresh/close, and keyboard navigation.
+- `useTrayMenu` shares read/revision/retirement handling with Quick Panel's preview;
+  only standalone successful leaf activation requests popup close.
+- Automated tuple validation recognizes only the Quick menu's layer namespace
+  singleton and its keyboard/layer policy. A Bar menu is a native parent-relative
+  popover that never enters the layer inventory, so the validator can neither
+  confirm nor deny it and must not treat a missing namespace as a Bar popup
+  presence pass. It deliberately does not classify auxiliary captures as content
+  and cannot establish an actual popup, grab, geometry, focus, consumed clicks,
+  or accessibility.
+- Current checks and observed runtime evidence are recorded below. Older v4/v5
+  and pre-connector-fix physical hotplug results above remain historical, not a
+  pass for the changed runtime.
+
+### Current v6 verification — 2026-10-09 (in progress)
+
+#### Pre-popup observations
+
+The following observations predate the Bar popup correction. They describe the
+retained Quick layer path and shared menu machinery, not a Bar-popup pass. Actual
+Bar-popup observations are recorded separately below.
+
+- Pre-popup-correction automated baseline: locked Rust formatting/Clippy/build
+  checks and all 139 native tests passed. Frontend typecheck, 78 tests / 499
+  assertions / 14 files, production build, plain-HTML syntax checks, and 32 smoke
+  tests / 99 assertions passed. Final post-popup counts are recorded below.
+- A temporary production-source host exercised the actual DBus → trusted
+  WebKit → Vue path. Menu scope rejected general state, another tray item,
+  malformed close parameters, disabled leaves, and stale revisions. Literal
+  labels remained text. Existing Quick self-close, Quick → Diagnostics handoff,
+  and Diagnostics self-close still replied successfully on both outputs.
+- Actual Fcitx had Id `Fcitx`, Title `输入法`, and exported `/MenuBar`.
+  Its host-rendered menu opened and closed on DP-2 and DP-3 without an alert,
+  vendor `ContextMenu`, or any executed Fcitx menu action. Both snapshots were
+  inspected; the visible menu was 360 × 358 logical pixels.
+- Real keyboard navigation expanded a fixture submenu, focused leaf 22, and
+  delivered one DBusMenu `clicked` Event before popup/capture retirement. A real
+  mouse click reached the actual popup above its fully rendered auxiliary layers
+  and activated fixture leaf 11 before the same cleanup.
+- Growing and then collapsing fixture content reproduced a nonshrinking popup.
+  Removing vertical flex stretching fixed the natural-height measurement:
+  the same native window measured 208 → 1692 → 208 logical pixels. Tall content
+  scrolled; long unbroken labels did not overflow horizontally.
+- Real pointer QA exposed an empty-snapshot defect: transparent dismiss windows
+  had layer-shell roles but submitted no Wayland buffer and did not receive input.
+  A transparent Cairo snapshot fixed the native surface. On both DP-2 and DP-3,
+  pointer position `(40, 8)` within the reserved Bar region hit the corresponding
+  dismiss layer. The first press closed the menu and all captures with unchanged
+  underlay counters; the next press incremented only that output's counter.
+- Earlier temporary QA underlays intercepted desktop clicks; they were stopped
+  immediately and the user confirmed restored input. Subsequent fullscreen
+  mouse/exclusive-keyboard segments required asktool approval, an independent
+  hard limit of at most 30 seconds, and cleanup on normal completion, failure,
+  or timeout. Bounded hosted runs ended with zero GTK windows and no project
+  layers; watcher/notification service owners remained `:1.22`.
+- The initial Quick probe reproduced GTK fixed-size clamping: Wayland configured
+  4096 × 1656, but GDK reported 200 × 200 and rejected the anchor. Temporarily
+  allowing resize during measurement, then restoring fixed menu size, produced
+  the actual native workarea and a 360 × 208 popup. Real pointer clicks and
+  keyboard Return independently opened that popup on both outputs after actual
+  OnDemand focus acquisition. Observed workareas were 4096 × 1656 and
+  3072 × 1656; top/right margins were 301/4 for the tested control. Escape
+  removed every capture. Both rendered snapshots were inspected.
+- Duplicate open retained its live native instance. Replacement bound the new
+  item, rejected the old ID, and retained exactly two captures plus one menu.
+  Exported-menu-path loss, unique-owner loss, and caller closure each removed
+  all menu/input layers and restored original Bar keyboard policy.
+- Current compositor-confirmed HUDs rendered the expected index/output on both
+  outputs. Replacement changed the immutable context; the new HUD survived the
+  old generation's deadline and disappeared after its own timeout. Both native
+  HUDs had keyboard None and stayed inactive. Real center clicks reached only
+  the underlying output's counter; both content snapshots were inspected.
+- Bar keyboard invocation reproduced a WebKit default-shortcut gap. Explicit
+  `ContextMenu` / Shift+F10 handling fixed it without taking over bare F10;
+  actual focused-Bar Shift+F10 now opens the host menu.
+- Observed Bar anchoring defect, resolved by the approved correction: with
+  `dms:dankisland` reserving the top, native pointer feedback placed this Bar at
+  output y=40. Its control bottom was y=68, so a below-control menu should start
+  at y=72. Actual right click and Shift+F10 both opened the zone-`-1` menu at y=32
+  because the local-to-output transform omitted the Bar's compositor displacement.
+  [Layer-shell configure](https://github.com/swaywm/wlr-protocols/blob/master/unstable/wlr-layer-shell-unstable-v1.xml)
+  supplies local width/height, not global origin, so the old all-output menu could
+  not derive the Bar's real position without guessing `dms:dankisland`'s exclusive
+  offsets. The user approved a Bar-only native parent-relative popup that anchors
+  to the triggered Bar control through GTK/Wayland relative placement and never
+  guesses a global origin; the accepted Quick overlay is unchanged.
+
+#### Post-popup verification and deferred physical acceptance
+
+- Final native checks passed formatting, locked all-target Clippy with
+  `-D warnings`, all 141 Rust tests, the locked build, and startup `--check`
+  with layer-shell support and two monitors. The integrated frontend passed
+  typecheck, 78 tests / 499 assertions / 14 files, production build, plain-HTML
+  syntax checks, and the root-run 32 smoke tests / 99 assertions.
+- Actual Bar right click on DP-3 opened an autohide `GdkPopup` whose native parent
+  matched the current Bar. For the fixture control at parent y=2, height=28, its
+  parent-relative popup y=34 placed it at observed global y=74, matching control
+  bottom plus the four-pixel gap under the existing top reservation. No foreign
+  offset was hardcoded and no Bar dismiss layer was created.
+- Real outside presses on DP-3 and DP-2 closed the Bar popup without changing
+  either output's underlying click counter. The next press incremented only the
+  target output's counter once. These are native Bar-grab observations, separate
+  from the older layer-capture tests.
+- Real Shift+F10 reopening on DP-2, End/Right submenu navigation, and Return
+  delivered one `clicked` Event for leaf 22 before closing. Testing exposed a
+  competing WebKit editor popover; native capture of the two Bar context-menu
+  shortcuts fixed it without global context-menu suppression.
+- The initial tall-popup implementation requested height 1720 as a GTK minimum.
+  Wayland configured 1654 instead, after which GTK destroyed the popup. The
+  shrinkable natural-size content widget fixed this reproduced failure:
+  the same native popup grew 201 -> 1654 -> 201, with scrollHeight 2739 and equal
+  scrollWidth/clientWidth 315, no error, and a successful `null` close reply.
+- A retained old popup WebView rejected a new request after same-parent reopen
+  with `Error: native surface has been retired`. A separately delayed real DBus
+  layout request entered before retirement; its old view received no structured
+  native payload, while the replacement still answered `getHostInfo`.
+  WebKit settled the dropped reply with `undefined`, not a menu response.
+- Forced compositor focus to an existing normal window retired the DP-3 popup
+  through native autohide. Internal widget focus transitions and Bar parent
+  deactivation are not used as substitutes for this seat-focus observation.
+- Actual Fcitx menus were opened by real Bar right clicks on both DP-3 and DP-2.
+  Each had the correct native parent, literal rendered labels, no error, no Bar
+  capture layers, and a successful self-close reply. Both snapshots were inspected;
+  no Fcitx menu action or vendor `ContextMenu` was executed.
+- Hybrid checks preserved duplicate-open identity, replacement item authority,
+  one global menu, and Quick's zone-0 Exclusive menu plus two zone--1/None
+  captures. Quick caller closure removed the menu and captures. Popup path and
+  owner loss retired the popup. Quick self-close, Diagnostics handoff, and
+  Diagnostics self-close returned their successful synchronous responses.
+- Every bounded input session removed its virtual mouse and native test layers
+  on completion or failure. Final inventories reported zero owned windows and
+  popovers and no remaining project layers. Watcher and notification service
+  owners remained `:1.22`.
+- The final production binary was also observed with one Top/OnDemand Bar on
+  each of DP-2 and DP-3. The user deferred physical unplug/reconnect on
+  2026-10-09; no output removal was observed in this run. The read-only supervisor
+  reached its 150-second deadline, the host exited 0, and final content/capture
+  inventories were empty.
+
+Post-fix physical hotplug remains the release gate. Earlier physical observations
+remain historical and cannot substitute. Full release acceptance is not complete.

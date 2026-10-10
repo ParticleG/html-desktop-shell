@@ -2,7 +2,7 @@
 
 ## Responsibility
 
-This directory is the Vue 3 reference application for four independent Bridge v5 layer-shell surfaces: Bar, Quick Panel, Workspace HUD, and Diagnostics Dialog. It bootstraps shared services, performs typed direct surface dispatch, owns surface-local presentation state and per-view polling, and supplies native desktop controls, layout, styles, localization, and mounted integration coverage.
+This is the Vue 3 reference application for five Bridge v6 content surfaces: Bar, Quick Panel, Workspace HUD, Diagnostics Dialog, and independent Tray Menu. It owns surface-local presentation, polling, desktop controls, localization, and mounted behavioral coverage.
 
 ## Bootstrap and surface dispatch
 
@@ -15,10 +15,11 @@ This directory is the Vue 3 reference application for four independent Bridge v5
 ## State, capabilities, and polling
 
 - `stores/shell.ts` caches validated HostInfo/capabilities, latest `ShellState`, bridge/action errors, and refresh status. It exposes exact workspace, Quick Panel, and Diagnostics operations plus `hasCapability(ShellMethod)`.
-- Capabilities are surface-scoped UI authority hints: views omit unavailable controls, while native Bridge v5 remains the security and parameter-validation boundary.
+- Capability flags are UI hints; native Bridge v6 owns caller/item authorization and exact parameter validation.
 - `composables/useShellPolling.ts` is owned by Bar, Quick Panel, and Diagnostics. It performs an immediate refresh, awaits completion, then schedules the next one-second timeout; disposal clears the timer and prevents an in-flight refresh from rescheduling.
 - `composables/useNativeAction.ts` owns local desktop-control busy/error state and rejects late post-unmount results. Desktop providers own authoritative state and action validation.
 - Workspace HUD never polls or reads the store after dispatch. It renders the compositor-confirmed immutable `workspaceIndex` and optional output from `WorkspaceHudSurfaceContext`.
+- Tray Menu never polls general state. `useTrayMenu` owns its bound root/submenu reads, revision activation, retirement, and literal rendering; native code owns geometry and dismissal (a Bar popover's native autohide/grab, or the Quick menu's all-output capture layers).
 
 ## Layout and presentation
 
@@ -33,9 +34,9 @@ This directory is the Vue 3 reference application for four independent Bridge v5
 ## Data and control flow
 
 1. The native window loads the bundle; `main.ts` mounts `App` and `SurfaceRoot`.
-2. Root initialization requests and validates exact Bridge v5 HostInfo and capabilities once.
+2. Root initialization validates exact Bridge v6 HostInfo and capabilities once.
 3. `SurfaceRoot` selects a view directly from the discriminated surface context.
-4. Mutable views own polling and render store snapshots. HUD renders only its surface prop.
+4. Bar/Quick/Diagnostics poll state; HUD renders immutable workspace context; Tray Menu reads only its bound menu session.
 5. Bar and Quick Panel pass shared `WidgetProps` to leaf widgets. Workspace input uses the positive compositor `workspace.index`, not workspace ID.
 6. Capability-gated controls call operation-specific store actions, which use shell-api's exact wrappers and preserve visible native failure details.
 7. Desktop widgets use the exact SDK operations with native-owned IDs and revisions. Only presentation reads are debounced/coalesced; native providers own business state, authorization, and launch authority.
@@ -43,8 +44,9 @@ This directory is the Vue 3 reference application for four independent Bridge v5
 
 ## Tests
 
-- `SurfaceRoot.mounted.test.ts` mounts all four variants, verifies one bootstrap pair per mount and direct dispatch, and verifies invalid HostInfo/capabilities remain in failure UI.
+- `SurfaceRoot.mounted.test.ts` covers five typed variants, validated bootstrap dispatch, and invalid native results.
 - `views/BarView.mounted.test.ts`, `QuickPanelView.mounted.test.ts`, and `DiagnosticsDialogView.mounted.test.ts` cover exact action envelopes, scoped controls, polling lifecycle, provider reasons, and recovery.
+- `views/TrayMenuView.mounted.test.ts` covers literal text, bound reads, lazy submenu/revision replacement, keyboard navigation, errors, successful-action-before-close ordering, and retirement without general-state polling.
 - `widgets/WorkspacesWidget.mounted.test.ts` covers pointer/keyboard workspace-index actions and unavailable/empty rendering.
 - `widgets/FocusedWindowWidget.mounted.test.ts` covers distinct output titles and missing/null/unavailable windows. The mounted Bar suite verifies output labels remain fixed across global keyboard-focus changes.
 - Mounted audio, tray, notification, and launcher suites cover exact payloads, native failures/unavailability, literal text, keyboard interactions, retired reads, catalog/menu invalidation, and teardown.
@@ -56,6 +58,6 @@ This directory is the Vue 3 reference application for four independent Bridge v5
 | --- | --- | --- |
 | `composables/` | Mutable-view polling and local desktop-action lifecycle. | [Composables](composables/codemap.md) |
 | `plugins/` | PrimeVue installation and theme policy. | [Plugins](plugins/codemap.md) |
-| `stores/` | Bridge v5 bootstrap, state, capabilities, errors, and exact surface/workspace actions. | [Stores](stores/codemap.md) |
-| `views/` | Four typed surface views. | [Views](views/codemap.md) |
+| `stores/` | Bridge v6 bootstrap, state, capabilities, errors, and exact surface/workspace actions. | [Stores](stores/codemap.md) |
+| `views/` | Five typed content views. | [Views](views/codemap.md) |
 | `widgets/` | Bar/status renderers, desktop controls, canvas icons, and shared status props. | [Widgets](widgets/codemap.md) |

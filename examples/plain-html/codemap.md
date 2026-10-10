@@ -2,12 +2,12 @@
 
 ## Responsibility
 
-This is a minimal, framework-free custom frontend for local assets and Bridge v5 surface/capability controls; it does not duplicate the official Vue desktop UI.
+This framework-free Bridge v6 frontend demonstrates local assets, scoped surface controls, and a functional native-bound Tray Menu without duplicating the official desktop UI.
 
 - `index.html` is the document entry point and contains only the `#app` loading mount.
 - `shell.css` supplies the self-contained presentation for status details and action buttons.
 - `js/app.js` renders the receiving surface, host state when authorized, and capability-gated controls.
-- [`js/codemap.md`](js/codemap.md) maps the framework-free Bridge v5 named adapters and renderer.
+- [`js/codemap.md`](js/codemap.md) maps exact Bridge v6 adapters and the renderer.
 
 The example is source material, not an automatically selected runtime frontend.
 
@@ -22,12 +22,12 @@ The document contains no remote URLs, fetches, package runtime, framework runtim
 
 ## Design / Patterns
 
-- **Typed surface context:** `getHostInfo` supplies Bridge version `4` and `surface.kind`, `surface.monitorIndex`, optional `surface.output`, and the Workspace HUD's `surface.workspaceIndex`.
-- **Capability discovery first:** `render()` fetches `getCapabilities`, converts `methods` to a `Set`, and invokes or exposes only operations listed for the receiving surface.
-- **Scoped authority:** Bar and Quick Panel may receive all six named methods; Workspace HUD receives only `getHostInfo` and `getCapabilities`; Diagnostics receives those two plus `getState` and `setDiagnosticsDialogOpen`. The native dispatcher independently enforces the same matrix.
+- **Typed native context:** v6 identifies monitor/output, confirmed HUD workspace, or native-bound Tray Menu item.
+- **Capability discovery:** only allowed exact operations are rendered/invoked.
+- **Scope:** Bar/Quick retain 20 methods, HUD two, Diagnostics four, Tray Menu five. Native code independently enforces the matrix.
 - **Exact controls:** `setQuickPanelOpen({ open })` and `setDiagnosticsDialogOpen({ open })` control only their typed surfaces. `niriFocusWorkspace({ workspaceIndex })` carries only a validated positive workspace index; there is no generic command, file, DBus, HTTP, eval, compositor-action, or window-creation method.
-- **Surface-relative actions:** open/close button labels derive from the current surface kind. Workspace buttons come only from the current state snapshot and are filtered to the receiving output when one is known.
-- **One-shot renderer:** the module performs one startup render. It has no polling, subscription, store, or recursive refresh.
+- **Output-relative actions:** unknown output exposes no workspace-index buttons; known output filters its own cached rows.
+- **Menu renderer:** Tray Menu replaces the generic metadata view with `#tray-menu-content`, literal enabled/toggle/separator nodes, lazy submenus, current-revision activation, close/refresh/errors, and keyboard navigation. It never reads general state.
 - **DOM-safe dynamic values:** details and errors use `textContent`; the app builds elements rather than interpolating native values into HTML.
 
 ## UI Structure
@@ -57,7 +57,7 @@ Button handlers disable their button for the in-flight call, clear the old statu
 
 - **Native asset loader:** `HTML_DESKTOP_SHELL_WEB_DIR` can select this contained directory instead of generated or installed assets.
 - **Trusted WebKit boundary:** only the host's reply-capable `shell` handler provides native access; the example itself remains static local content.
-- **Bridge v5 methods:** `bridge.js` wraps all 20 exact methods; the minimal renderer capability-gates its surface/workspace demo. Native authorization remains authoritative.
+- **Bridge v6 methods:** `bridge.js` wraps 21 exact methods; native authorization remains authoritative. Tray Menu uses its five-method scope and never requests general state.
 - **Native surface manager:** Quick Panel and Diagnostics visibility requests are routed to typed manager operations; the example has no direct window or layer-shell authority.
 - **Niri provider:** workspace controls use only published workspace indices and the exact native focus-workspace operation.
 - **Sub-map:** [`js/codemap.md`](js/codemap.md) documents request framing, wrappers, capability behavior, and DOM control flow.

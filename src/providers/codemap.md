@@ -66,8 +66,10 @@ Production state has `clock`, `host`, `niri`, `battery`, `network`, `audio`, `tr
 
 ### Desktop integration
 
-The exact v5 contract and dated real-IPC verification are in the
-[implementation plan](../../docs/html-desktop-shell-multi-surface-implementation-plan.md#desktop-capability-extension--bridge-v5).
+The original desktop-capability delivery and dated real-IPC evidence are in the
+[v5 section](../../docs/html-desktop-shell-multi-surface-implementation-plan.md#desktop-capability-extension--bridge-v5).
+Current host-menu ownership and scoped v6 authorization are in the
+[tray-menu extension](../../docs/html-desktop-shell-multi-surface-implementation-plan.md#native-tray-menu-extension--bridge-v6).
 Audio controls only the default output. Tray joins the current watcher or owns
 an absent/released name without replacement; menu preparation and clicks use
 native owner bindings and actual revision/visibility/enabled state. Notifications
@@ -77,9 +79,14 @@ authoritative `gio_unix::DesktopAppInfo` on GTK in yielded batches; no GObject
 is assumed Send. Catalog invalidation clears the launch allowlist until refresh.
 Asynchronous callbacks are weak/generation guarded and all resources are
 cancellable or explicitly reaped/released on shutdown.
-DBusMenu labels retain literal angle brackets and entity-like strings; only
-mnemonic/control-character normalization applies. SNI ToolTip markup is handled
-separately, and frontends render menu text without interpreting markup.
+SNI display names and ToolTip titles preserve literal text and underscores;
+only ToolTip descriptions undergo markup-to-text conversion. DBusMenu labels
+retain literal angle brackets and entity-like strings, with separate
+mnemonic/control-character normalization. Frontends never interpret tray markup.
+Host menu opening never forwards vendor `ContextMenu`. Tray cache authority
+continues to bind native item IDs, current unique owners, menu paths and revisions;
+the surface manager separately owns menu placement, lifecycle, and the Quick
+menu's input captures (the Bar menu relies on its native popover grab).
 
 ## Data & Control Flow
 

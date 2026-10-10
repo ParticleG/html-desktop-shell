@@ -2,7 +2,7 @@
 
 ## Responsibility
 
-`useShellPolling.ts` owns view-scoped, serialized shell-state polling. It is used by the Bar, Quick Panel, and Diagnostics views; the Workspace HUD intentionally never calls it. `useNativeAction.ts` owns local desktop-control busy/error state, not native permissions or provider business state.
+`useShellPolling.ts` owns serialized state polling for Bar/Quick/Diagnostics; HUD and Tray Menu never use it. `useNativeAction.ts` owns local busy/error retirement. `useTrayMenu.ts` shares bound DBusMenu session handling between in-panel preview and independent menu presentation without owning native authority.
 
 ## Lifecycle and scheduling
 
@@ -25,3 +25,9 @@
 - `useNativeAction()` rejects concurrent or post-unmount work, clears the previous error when an action starts, and exposes the completed native result only while mounted.
 - `nativeErrorMessage()` preserves structured `NativeBridgeError` codes/messages for visible failures without exposing raw IPC or subprocess details.
 - Audio, tray, notification, and launcher widgets use this local lane; they independently guard IDs, capabilities, and retired read generations before updating presentation.
+
+## Bound menu session
+
+- `useTrayMenu` fetches root/submenus, replaces native revisions, prunes expanded IDs, and retires late results.
+- It activates only visible enabled leaves using the current revision. Popup `TrayMenuView` closes only after successful activation; Quick Panel preview retains its own lifecycle.
+- Native code owns item/owner authorization, coordinates, sizing, and outside-click capture.
