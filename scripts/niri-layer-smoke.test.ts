@@ -292,6 +292,25 @@ describe("niri layer smoke validator", () => {
     expect(result.observed).toHaveLength(2);
   });
 
+  test("tray menu rejects a second menu on another output without mistaking dismiss layers for menus", () => {
+    const outputs = { "DP-2": output("DP-2"), "DP-3": output("DP-3") };
+    const selected = layer("html-desktop-shell-tray-menu-0", "DP-2", "Overlay", "Exclusive");
+    const dismiss = layer("html-desktop-shell-tray-dismiss-1", "DP-3", "Overlay", "None");
+    const expectation = { surface: "tray-menu" as const, monitorIndex: 0, output: "DP-2" };
+    expect(validate(outputs, [selected, dismiss], 2, expectation).ok).toBe(true);
+    const duplicate = validate(outputs, [
+      selected,
+      layer("html-desktop-shell-tray-menu-1", "DP-3", "Overlay", "Exclusive"),
+    ], 2, expectation);
+    expect(duplicate.ok).toBe(false);
+    expect(duplicate.diagnostics).toContain("duplicate tray menu: expected one global menu, observed 2");
+    const wrongKeyboard = validate(outputs, [
+      layer("html-desktop-shell-tray-menu-0", "DP-2", "Overlay", "OnDemand"),
+    ], 2, expectation);
+    expect(wrongKeyboard.ok).toBe(false);
+    expect(validate(outputs, [dismiss], 2, { ...expectation, absent: true }).ok).toBe(true);
+  });
+
   test("CLI selects a transient profile, supports absence, and preserves status classes", () => {
     const root = mkdtempSync(join(tmpdir(), "niri-layer-validator-cli-"));
     const outputsPath = join(root, "outputs.json");

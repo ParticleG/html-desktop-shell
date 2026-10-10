@@ -1,3 +1,7 @@
+// Composable layer-tuple profiles for the typed content surfaces. The `tray-menu`
+// profile matches only the Quick Panel menu's layer namespace: a Bar tray menu is a
+// native parent-relative popup with no layer namespace, so it never appears in a
+// layer inventory and cannot be confirmed or denied here.
 export const SURFACE_PROFILES = {
   bar: {
     namespacePrefix: "html-desktop-shell-panel-",
@@ -18,6 +22,11 @@ export const SURFACE_PROFILES = {
     namespacePrefix: "html-desktop-shell-diagnostics-",
     layer: "Overlay",
     keyboard: "OnDemand",
+  },
+  "tray-menu": {
+    namespacePrefix: "html-desktop-shell-tray-menu-",
+    layer: "Overlay",
+    keyboard: "Exclusive",
   },
 } as const;
 
@@ -254,6 +263,9 @@ export function validateNiriLayers(
     if (exact.length > 1) {
       diagnostics.push(`duplicate transient: ${JSON.stringify(expectedNamespace)} on ${JSON.stringify(output)} observed ${exact.length} times`);
     }
+    if (surface === "tray-menu" && profileLayers.length > 1) {
+      diagnostics.push(`duplicate tray menu: expected one global menu, observed ${profileLayers.length}`);
+    }
     for (const candidate of selectedNamespaceLayers) {
       if (candidate.output !== output) {
         diagnostics.push(
@@ -357,7 +369,7 @@ export function formatValidation(result: ValidationResult): string {
 
 function usage(): never {
   throw new Error(
-    "usage: bun scripts/niri-layer-smoke.ts --outputs <outputs.json> --layers <layers.json> --monitor-count <N> [--surface <bar|quick-panel|workspace-hud|diagnostics-dialog> [--monitor-index <N> --output <NAME> [--absent]]]",
+    "usage: bun scripts/niri-layer-smoke.ts --outputs <outputs.json> --layers <layers.json> --monitor-count <N> [--surface <bar|quick-panel|workspace-hud|diagnostics-dialog|tray-menu> [--monitor-index <N> --output <NAME> [--absent]]] (--surface tray-menu inspects only the Quick Panel menu layer namespace; a Bar tray menu is a native parent-relative popup that no layer inventory, and no --absent result, can confirm or deny)",
   );
 }
 
